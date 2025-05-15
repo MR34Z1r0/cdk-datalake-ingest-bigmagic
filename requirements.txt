@@ -1,0 +1,23 @@
+python-dotenv==0.19.2
+attrs==21.4.0
+aws-cdk-lib==2.99.0
+aws-cdk.aws-glue-alpha==2.54.0a0
+cattrs==22.1.0
+constructs>=10.0.0,<11.0.0
+exceptiongroup==1.0.0rc3
+jsii==1.108.0
+pre-commit==3.3.3
+publication==0.0.3
+python-dateutil==2.8.2
+six==1.16.0
+typing-extensions==4.11.0
+
+################## Extract Data PYTHON ##################
+boto3
+pytz
+python-dateutil
+cx_Oracle ; sys_platform == 'linux' or sys_platform == 'darwin'  # Para Oracle
+pyodbc ; sys_platform == 'win32' or sys_platform == 'linux'     # Para SQL Server
+mysql-connector-python    
+pandas
+awswrangler
