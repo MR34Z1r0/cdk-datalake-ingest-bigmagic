@@ -270,7 +270,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         prepare_for_task_creation.add_retry(
             errors=["Lambda.ClientExecutionTimeoutException", "Lambda.ServiceException", 
                     "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
-            interval=cdk.Duration.seconds(2),
+            interval=Duration.seconds(2),
             max_attempts=6,
             backoff_rate=2
         )
@@ -470,7 +470,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         state_machine = sfn.StateMachine(
             self, "DatalakeIngestionWorkflow",
             definition=definition,
-            timeout=cdk.Duration.seconds(3600)
+            timeout=Duration.seconds(3600)
         )
         
         return state_machine
