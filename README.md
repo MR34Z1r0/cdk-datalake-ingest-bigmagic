@@ -63,3 +63,33 @@ command.
  * `cdk docs`        open CDK documentation
 
 Enjoy!
+
+# Nombre de tu Proyecto
+
+## Flujo de trabajo para desarrollo y despliegue
+
+Este proyecto utiliza GitHub Actions para automatizar el despliegue a los entornos de desarrollo y producción.
+
+### Entornos
+
+- **Desarrollo (DEV)**: Asociado a la rama `dev`
+- **Producción (PRD)**: Asociado a la rama `master`
+
+### Reglas del flujo de trabajo
+
+1. **Desarrollo diario:**
+   - Trabaja en la rama `dev` o en ramas de características (`feature/nombre`)
+   - Puedes hacer push directamente a `dev` para un despliegue automático a desarrollo
+   - Los cambios en `dev` se despliegan automáticamente al entorno de desarrollo
+
+2. **Lanzamiento a producción:**
+   - **NUNCA** hagas push directamente a la rama `master`
+   - Todos los cambios a producción deben pasar por un Pull Request desde `dev` a `master`
+   - El PR debe ser revisado y aprobado por al menos un miembro del equipo
+   - Una vez aprobado, haz merge del PR (no uses push)
+   - Los cambios se desplegarán automáticamente a producción
+
+3. **Para hotfixes urgentes:**
+   - Crea una rama de hotfix desde `master`: `git checkout -b hotfix/descripcion master`
+   - Implementa la corrección y crea un PR desde tu rama de hotfix a `master`
+   - Después de desplegar a producción, no olvides integrar el fix a `dev`
