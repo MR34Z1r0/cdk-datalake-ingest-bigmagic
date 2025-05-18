@@ -77,7 +77,6 @@ columns_array = dynamodb_client.query(
 table_data = config_table_metadata.get_item(Key={'TARGET_TABLE_NAME': table_name})['Item']
 endpoint_data = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': table_data['ENDPOINT']})['Item']
 
-
 class NoDataToMigrateException(Exception):
     def __init__(self):
         self.msg = "no data detected to migrate"
@@ -134,8 +133,7 @@ def split_function(query_string):
                     start_index =  last_function_index + 1
             functions.append(query_string[start_index:aux[-1]])
             aux.pop()
-    
-            
+
 def transform_df(raw_df, function_name, parameters, column_name, data_type):
     function_name = function_name.strip()
     if '$sub_column' in column_name:
@@ -323,8 +321,7 @@ def transform_df(raw_df, function_name, parameters, column_name, data_type):
 
     else:
         return raw_df
-        
-    
+
 def send_error_message(topic_arn, table_name, error):
     client = boto3.client("sns")
     if "no data detected to migrate" in error:
@@ -335,7 +332,6 @@ def send_error_message(topic_arn, table_name, error):
         TopicArn=topic_arn,
         Message=message
     )
-
 
 def update_attribute_value_dynamodb(row_key_field_name, row_key, attribute_name, attribute_value, table_name):
     logger.info('update dynamoDb Metadata : {} ,{},{},{},{}'.format(row_key_field_name, row_key, attribute_name, attribute_value, table_name))
@@ -363,15 +359,13 @@ def condition_generator(id_columns):
         string = "old." + id_column + "=new." + id_column + " AND " + string
     return string[:-4]
 
-
-
 try:
+    DAYS_LIMA = '15'
     s3_raw_path = s3_source + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + table_data['ENDPOINT'] + "/" + table_data['SOURCE_TABLE'].split()[0] + "/year=" + YEARS_LIMA + "/month=" + MONTHS_LIMA + "/day=" + DAYS_LIMA + "/"
     s3_stage_path = s3_target + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + table_data['ENDPOINT'] + "/" + table_data['STAGE_TABLE_NAME'] + "/"
     try:
         raw_df = spark.read.format("csv").option("compression", "gzip").option("header", True).load(s3_raw_path)
         raw_df.show()
-        
     except Exception as e:
         logger.error(e)
         raise NoDataToMigrateException()

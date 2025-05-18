@@ -30,7 +30,7 @@ DAYS_LIMA = dt.datetime.now(TZ_LIMA).strftime('%d')
 
 # @params: [JOB_NAME]
 args = getResolvedOptions(
-    sys.argv, ['JOB_NAME', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 'INPUT_ENDPOINT', 'PROCESS_ID', 'ARN_ROLE_CRAWLER', 'PROJECT_NAME', 'DATA_SOURCE', 'DOM_STEP_NAME'])
+    sys.argv, ['JOB_NAME', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 'INPUT_ENDPOINT', 'PROCESS_ID', 'ARN_ROLE_CRAWLER', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
 
 spark = SparkSession \
     .builder \
@@ -57,20 +57,8 @@ job_name = args['JOB_NAME']
 endpoint_name = args['INPUT_ENDPOINT']
 endpoint_data = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': endpoint_name})['Item']
  
-data_catalog_database_name = f"{args['PROJECT_NAME']}_{args['DATA_SOURCE']}_{endpoint_name}_stage"
+data_catalog_database_name = f"{args['TEAM']}_{args['DATA_SOURCE']}_{endpoint_name}_stage".lower()
 data_catalog_crawler_name = data_catalog_database_name+ "_crawler"
-
-def start_step_execution(input_json, state_machine_arn):
-    try:
-        logger.info('Try initialize dom workflow')
-        client = boto3.client('stepfunctions')
-        response = client.start_execution(
-            stateMachineArn=state_machine_arn,
-            input=input_json
-        )
-        return response
-    except Exception as e:
-        logger.error(e)
 
 def create_database_data_catalog(database_data_catalog_name):
     try:
@@ -80,7 +68,6 @@ def create_database_data_catalog(database_data_catalog_name):
         )
     except Exception as e:
         logger.error(e)
-
 
 def get_database_data_catalog(database_data_catalog_name):
     try:
@@ -93,7 +80,6 @@ def get_database_data_catalog(database_data_catalog_name):
         logger.error(e)
         return False
 
-
 def get_job_arn_role(job_name):
     try:
         return client_glue.get_job(
@@ -101,7 +87,6 @@ def get_job_arn_role(job_name):
         )['Job']['Role']
     except Exception as e:
         logger.error(e)
-
 
 def grant_permissions_to_database_lakeformation(job_role_arn_name, database_data_catalog_name):
     client_lakeformation.grant_permissions(
@@ -120,7 +105,6 @@ def grant_permissions_to_database_lakeformation(job_role_arn_name, database_data
             'ALL',
         ]
     )
-
 
 def grant_permissions_lf_tag_lakeformation(job_role_arn_name):
     """Once defined by the console in lakeformation the role in Data lake administrators and the LF tags
@@ -145,7 +129,6 @@ def grant_permissions_lf_tag_lakeformation(job_role_arn_name):
         ]
     )
 
-
 def add_lf_tags_to_database_lakeformation(database_data_catalog_name):
     """Once the role has the LF-tag, we assign the same LF-tag to the database resources"""
     client_lakeformation.add_lf_tags_to_resource(
@@ -164,7 +147,6 @@ def add_lf_tags_to_database_lakeformation(database_data_catalog_name):
         ]
     )
 
-
 def create_crawler(total_list):
     try:
         tables = []
@@ -172,14 +154,9 @@ def create_crawler(total_list):
             
             table_data = config_table_metadata.get_item(Key={'TARGET_TABLE_NAME': table})['Item']
             endpoint_data = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': table_data['ENDPOINT']})['Item']
-            
-            if endpoint_data['BD_TYPE'] == 'mssql':
-                bd_type = 'sqlserver'
-            else:
-                bd_type = endpoint_data['BD_TYPE']
-                
+             
             data_source = {
-                'DeltaTables': [f"{s3_target}{args['PROJECT_NAME']}/{bd_type}/{table_data['ENDPOINT']}/{table_data['STAGE_TABLE_NAME']}/"],
+                'DeltaTables': [f"{s3_target}{args['TEAM']}/{args['DATA_SOURCE']}/{table_data['ENDPOINT']}/{table_data['STAGE_TABLE_NAME']}/"],
                 'ConnectionName': '',
                 'CreateNativeDeltaTable': True
             }
@@ -197,7 +174,6 @@ def create_crawler(total_list):
     except Exception as e:
         logger.error(e)
 
-
 def edit_crawler(total_list):
     try:
         tables = []
@@ -205,14 +181,9 @@ def edit_crawler(total_list):
             
             table_data = config_table_metadata.get_item(Key={'TARGET_TABLE_NAME': table})['Item']
             endpoint_data = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': table_data['ENDPOINT']})['Item']
-            
-            if endpoint_data['BD_TYPE'] == 'mssql':
-                bd_type = 'sqlserver'
-            else:
-                bd_type = endpoint_data['BD_TYPE']
-                
+             
             data_source = {
-                'DeltaTables': [f"{s3_target}{args['PROJECT_NAME']}/{bd_type}/{table_data['ENDPOINT']}/{table_data['STAGE_TABLE_NAME']}/"],
+                'DeltaTables': [f"{s3_target}{args['TEAM']}/{args['DATA_SOURCE']}/{table_data['ENDPOINT']}/{table_data['STAGE_TABLE_NAME']}/"],
                 'ConnectionName': '',
                 'CreateNativeDeltaTable': True
             }
@@ -230,7 +201,6 @@ def edit_crawler(total_list):
     except Exception as e:
         logger.error(e)
 
-
 def get_crawler(crawler_name):
     try:
         client_glue.get_crawler(
@@ -242,7 +212,6 @@ def get_crawler(crawler_name):
         logger.error(e)
         return False
 
-
 def start_crawler(crawler_name):
     try:
         client_glue.start_crawler(
@@ -251,7 +220,6 @@ def start_crawler(crawler_name):
         logger.debug("Successfully started crawler")
     except Exception as e:
         logger.error(e)
-
 
 def update_attribute_value_dynamodb(row_key_field_name, row_key, attribute_name, attribute_value, table_name):
     logger.info('update dynamoDb Metadata : {} ,{},{},{},{}'.format(row_key_field_name, row_key, attribute_name, attribute_value, table_name))
@@ -265,7 +233,6 @@ def update_attribute_value_dynamodb(row_key_field_name, row_key, attribute_name,
             }
         }
     )
-
 
 def get_dynamo_crawler_status_for_endpoint(endpoint_name):
     total_list = []
@@ -287,14 +254,7 @@ def get_dynamo_crawler_status_for_endpoint(endpoint_name):
 
     return total_list, empty_table
 
-
 try:
-    params = json.dumps({
-        'COD_PAIS':args['INPUT_ENDPOINT'][:2],
-        'PROCESS_ID' : args['PROCESS_ID'],
-        "S3_PATH_DOM": "s3://datalakeingestion-ajedevanalyticsbucket02c90b73-1m6bqj7txp3gt/athenea/dominio/comercial/validaciones"
-    })
-    start_step_execution(params, args['DOM_STEP_NAME'])
     total_list, empty_table = get_dynamo_crawler_status_for_endpoint(endpoint_name)
     if get_crawler(data_catalog_crawler_name):
         if len(empty_table) > 0:

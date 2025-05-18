@@ -14,6 +14,12 @@ you can create the virtualenv manually.
 
 To manually create a virtualenv on MacOS and Linux:
 
+Si no se reconoce la palabra clave python
+```
+export PATH="/c/ProgramData/anaconda3:/c/ProgramData/anaconda3/Scripts:$PATH"
+```
+
+
 ```
 $ python -m venv .venv
 ```

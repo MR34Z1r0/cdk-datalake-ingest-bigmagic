@@ -37,8 +37,6 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         self.TEAM = self.PROJECT_CONFIG.app_config["team"]
         self.DATASOURCE = self.PROJECT_CONFIG.app_config["datasource"]
         
-        
-        
         self.import_s3_buckets()
         self.import_dynamodb_tables()
         self.import_sns_topics()
@@ -106,45 +104,25 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         lambda_config = LambdaConfig(
             function_name=function_name,
             handler=f"{function_name}/lambda_function.lambda_handler",
-            code_path=f"{self.Paths.LOCAL_ARTIFACTS_LAMBDA_CODE}/stage",
+            code_path=f"{self.Paths.LOCAL_ARTIFACTS_LAMBDA_CODE_STAGE}",
             runtime=_lambda.Runtime.PYTHON_3_11,
             memory_size=512,
             timeout=Duration.seconds(30)
         )
-        self.get_endpoint_lambda = self.builder.build_lambda_function(lambda_config)
+        self.lambda_get_endpoint = self.builder.build_lambda_function(lambda_config)
          
-        function_name = "update_load_start_value_mysql"
-        lambda_config = LambdaConfig(
-            function_name=function_name,
-            handler=f"{function_name}/lambda_function.lambda_handler",
-            code_path=f"{self.Paths.LOCAL_ARTIFACTS_LAMBDA_CODE}/stage",
-            runtime=_lambda.Runtime.PYTHON_3_9,
-            memory_size=512,
-            timeout=Duration.seconds(30)
-        )
-        self.update_load_start_value_mysql_lambda = self.builder.build_lambda_function(lambda_config)
-        
-        function_name = "update_load_start_value_oracle"
-        lambda_config = LambdaConfig(
-            function_name=function_name,
-            handler=f"{function_name}/lambda_function.lambda_handler",
-            code_path=f"{self.Paths.LOCAL_ARTIFACTS_LAMBDA_CODE}/stage",
-            runtime=_lambda.Runtime.PYTHON_3_9,
-            memory_size=512,
-            timeout=Duration.seconds(30)
-        )
-        self.update_load_start_value_oracle_lambda = self.builder.build_lambda_function(lambda_config)
-                
         function_name = "prepare_dms_creation_task"
         lambda_config = LambdaConfig(
             function_name=function_name,
             handler=f"{function_name}/lambda_function.lambda_handler",
-            code_path=f"{self.Paths.LOCAL_ARTIFACTS_LAMBDA_CODE}/stage",
+            code_path=f"{self.Paths.LOCAL_ARTIFACTS_LAMBDA_CODE_STAGE}",
             runtime=_lambda.Runtime.PYTHON_3_9,
             memory_size=512,
             timeout=Duration.seconds(30)
         )
-        self.prepare_dms_creation_task_lambda = self.builder.build_lambda_function(lambda_config)
+        self.lambda_prepare_dms_creation_task = self.builder.build_lambda_function(lambda_config)
+
+
         
     def create_glue_jobs(self):
         """Create a job definition for the Datalake Ingest BigMagic stack"""
@@ -160,15 +138,14 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             '--DYNAMO_ENDPOINT_TABLE': self.dynamodb_credentials_table.table_name,
             '--DYNAMO_STAGE_COLUMNS': self.dynamodb_columns_specifications_table.table_name,
             '--DYNAMO_LOGS_TABLE': self.dynamodb_logs_table.table_name,
-            '--enable-continuous-log-filter': "true",
             '--TABLE_NAME': "NONE",
+            '--enable-continuous-log-filter': "true",
             '--datalake-formats': "delta",
             }
         
-        # Crawler role for stage
-        role_crawler = iam.Role(self, f"aje-{props['Environment']}-stage-role-crawler",
-            assumed_by=iam.ServicePrincipal(
-                "glue.amazonaws.com"),
+        config = RoleConfig(
+            role_name=f"crawler_stage",
+            assumed_by=iam.ServicePrincipal("glue.amazonaws.com"),
             inline_policies={
                 'AccessStageS3': iam.PolicyDocument(
                     statements=[iam.PolicyStatement(
@@ -177,14 +154,17 @@ class CdkDatalakeIngestBigMagicStack(Stack):
                     )]
                 )},
             managed_policies=[iam.ManagedPolicy.from_aws_managed_policy_name('service-role/AWSGlueServiceRole')]
-            )
+        )
+
+        self.role_crawler_stage = self.builder.build_role(config)
         
+        job_name="extract_data_bigmagic_shell"
         config = GlueJobConfig(
-            job_name="extract_data_bigmagic",
+            job_name=job_name,
             executable=glue.JobExecutable.python_shell(
                 glue_version=glue.GlueVersion.V1_0,
                 python_version=glue.PythonVersion.THREE,
-                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE}/raw/extract_data_bigmagic_spark.py")
+                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_RAW}/{job_name}.py")
             ),
             default_arguments=default_arguments,
             continuous_logging=glue.ContinuousLoggingProps(enabled=True),
@@ -194,12 +174,13 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         
         self.job_extract_data_bigmagic = self.builder.build_glue_job(config)
         
+        job_name="light_transform"
         config = GlueJobConfig(
-            job_name="light_transform",
+            job_name=job_name,
             executable=glue.JobExecutable.python_etl(
                 glue_version=glue.GlueVersion.V4_0,
                 python_version=glue.PythonVersion.THREE,
-                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE}/stage/light_transform.py")
+                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_STAGE}/{job_name}.py")
             ),
             default_arguments=default_arguments,
             worker_type=glue.WorkerType.G_1_X,
@@ -211,12 +192,13 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         
         self.job_light_transform = self.builder.build_glue_job(config)
 
+        job_name="crawler_stage"
         config = GlueJobConfig(
-            job_name="crawler_stage",
+            job_name=job_name,
             executable=glue.JobExecutable.python_etl(
                 glue_version=glue.GlueVersion.V4_0,
                 python_version=glue.PythonVersion.THREE,
-                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE}/stage/crawlers_job.py")
+                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_STAGE}/{job_name}.py")
             ),
             default_arguments=default_arguments,
             worker_type=glue.WorkerType.G_1_X,
@@ -244,9 +226,28 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         self.sns_failed_topic.grant_publish(self.job_light_transform)
         
         self.s3_stage_bucket.grant_read_write(self.job_crawler_stage)
+        self.dynamodb_configuration_table.grant_read_write_data(self.job_crawler_stage)
+        self.dynamodb_credentials_table.grant_read_write_data(self.job_crawler_stage)
+        self.dynamodb_columns_specifications_table.grant_read_write_data(self.job_crawler_stage)
+        self.dynamodb_logs_table.grant_read_write_data(self.job_crawler_stage)
+        self.sns_failed_topic.grant_publish(self.job_crawler_stage)
+
+        self.s3_stage_bucket.grant_read_write(self.lambda_get_endpoint)
+        self.dynamodb_configuration_table.grant_read_write_data(self.lambda_get_endpoint)
+        self.dynamodb_credentials_table.grant_read_write_data(self.lambda_get_endpoint)
+        self.dynamodb_columns_specifications_table.grant_read_write_data(self.lambda_get_endpoint)
+        self.dynamodb_logs_table.grant_read_write_data(self.lambda_get_endpoint)
+        self.sns_failed_topic.grant_publish(self.lambda_get_endpoint)
         
+        self.s3_stage_bucket.grant_read_write(self.lambda_prepare_dms_creation_task)
+        self.dynamodb_configuration_table.grant_read_write_data(self.lambda_prepare_dms_creation_task)
+        self.dynamodb_credentials_table.grant_read_write_data(self.lambda_prepare_dms_creation_task)
+        self.dynamodb_columns_specifications_table.grant_read_write_data(self.lambda_prepare_dms_creation_task)
+        self.dynamodb_logs_table.grant_read_write_data(self.lambda_prepare_dms_creation_task)
+        self.sns_failed_topic.grant_publish(self.lambda_prepare_dms_creation_task)
+
     def create_step_functions(self):
-        """Create a step function definition for the Datalake Ingestion workflow"""
+        """Crear una definición de Step Function para el flujo de trabajo de Ingesta de Datalake"""
         
         # Estados de decisión
         needs_replication_instance = sfn.Choice(self, "Needs Replication Instance?")
@@ -258,60 +259,37 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             result_path="$.replication_instance_arn"
         )
         
-        # Estado final - eliminar instancia de replicación
-        delete_replication_instance = tasks.LambdaInvoke(
-            self, "Delete Replication Instance",
-            lambda_function=self.delete_dms_replication_task_lambda
-        )
-        
-        # Configurar SNS para notificación de fallos
-        record_failed = tasks.SnsPublish(
-            self, "Record Failed",
-            message=sfn.TaskInput.from_object({
-                "message": "failed preparing load",
-                "error.$": "$.error"
-            }),
-            topic=self.sns_failed_topic,
-            result_path=sfn.JsonPath.DISCARD
-        )
-        
-        # Estado para actualizar valor de inicio para tablas SQL
-        update_start_value_sql = tasks.LambdaInvoke(
-            self, "Update start value for table SQL",
-            lambda_function=self.update_load_start_value_mssql_lambda
-        )
-        
-        update_start_value_sql.add_catch(
-            errors=["States.ALL"],
-            result_path="$.error",
-            handler=record_failed
-        )
-        
-        # Estado de decisión para verificar si el valor inicial se actualizó
-        start_value_updated = sfn.Choice(self, "Start Value Updated?")
-        
-        # Estado de preparación para creación de tareas
+        # Estado para preparación de creación de tareas
         prepare_for_task_creation = tasks.LambdaInvoke(
             self, "Prepare for Task Creation",
-            lambda_function=self.prepare_dms_creation_task_lambda
+            lambda_function=self.lambda_prepare_dms_creation_task,
+            result_path="$",
+            output_path="$.Payload"
+        )
+        
+        prepare_for_task_creation.add_retry(
+            errors=["Lambda.ClientExecutionTimeoutException", "Lambda.ServiceException", 
+                    "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
+            interval=cdk.Duration.seconds(2),
+            max_attempts=6,
+            backoff_rate=2
         )
         
         # Estado para obtener endpoint
         get_endpoint = tasks.LambdaInvoke(
             self, "Get Endpoint",
-            lambda_function=self.get_endpoint_lambda
+            lambda_function=self.lambda_get_endpoint
         )
         
-        # Trabajos de Glue
         # Estado de error para el trabajo raw
         error_raw_job = sfn.Pass(
             self, "error raw job"
         )
         
-        # Configuración de trabajos Glue
+        # Estado para job raw de Glue
         raw_job = tasks.GlueStartJobRun(
             self, "raw job",
-            glue_job_name=self.job_extract_data_bigmagic.job_name,
+            glue_job_name="sofia-dev-datalake-extract_data_bigmagic-job",
             integration_pattern=sfn.IntegrationPattern.RUN_JOB,
             arguments=sfn.TaskInput.from_object({
                 "--TABLE_NAME.$": "$.dynamodb_key.table"
@@ -330,9 +308,10 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             handler=error_raw_job
         )
         
+        # Estado para job de transformación ligera
         stage_job_by_glue = tasks.GlueStartJobRun(
             self, "stage job by glue",
-            glue_job_name=self.job_light_transform.job_name,
+            glue_job_name="sofia-dev-datalake-light_transform-job",
             integration_pattern=sfn.IntegrationPattern.RUN_JOB,
             arguments=sfn.TaskInput.from_object({
                 "--TABLE_NAME.$": "$.dynamodb_key.table"
@@ -345,11 +324,14 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             backoff_rate=5
         )
         
+        # Estado para job de crawler
         crawler_job = tasks.GlueStartJobRun(
             self, "crawler job",
-            glue_job_name=self.job_crawler_stage.job_name,
+            glue_job_name="sofia-dev-datalake-crawler_stage-job",
             integration_pattern=sfn.IntegrationPattern.RUN_JOB,
             arguments=sfn.TaskInput.from_object({
+                "--additional-python-modules": 'boto3==1.26.42',
+                "--ARN_ROLE_CRAWLER": self.role_crawler_stage.role_arn,
                 "--INPUT_ENDPOINT.$": "$.endpoint",
                 "--PROCESS_ID.$": "$.process_id"
             })
@@ -361,7 +343,30 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             backoff_rate=5
         )
         
+        # Estado para verificar necesidad de Glue
+        needs_glue = sfn.Choice(self, "needs glue?")
+        
+        # Estado para verificar execute_raw
+        check_execute_raw = sfn.Choice(self, "Check Execute Raw")
+        
+        # Configurar el flujo para Check Execute Raw
+        check_execute_raw.when(
+            sfn.Condition.boolean_equals("$.execute_raw", False),
+            stage_job_by_glue
+        ).otherwise(raw_job)
+        
+        # Definir transiciones para needs_glue
+        needs_glue.when(
+            sfn.Condition.string_equals("$.dynamodb_key.type", "needs_glue"),
+            check_execute_raw
+        )
+        
+        # Conectar flujo de trabajo para raw_job y stage_job
+        raw_job.next(stage_job_by_glue)
+        
         # Map interno para necesidades de consultas
+        needs_query_iterator = sfn.Chain.start(needs_glue)
+        
         needs_query_map = sfn.Map(
             self, "Needs Query?",
             max_concurrency=15,
@@ -370,35 +375,29 @@ class CdkDatalakeIngestBigMagicStack(Stack):
                 "dynamodb_key.$": "$$.Map.Item.Value",
                 "replication_instance_arn.$": "$.replication_instance_arn",
                 "process.$": "$.process",
-                "execute_raw.$": "$.execute_raw"  # Añadir el parámetro execute_raw
-            }
+                "execute_raw.$": "$.execute_raw"
+            },
+            iterator=needs_query_iterator
         )
         
-        # Choice para necesidades de Glue
-        needs_glue = sfn.Choice(self, "needs glue?")
-        
-        # Nuevo Choice para verificar execute_raw
-        check_execute_raw = sfn.Choice(self, "Check Execute Raw")
-        
-        # Configurar el flujo para los needs_glue y check_execute_raw
-        needs_glue.when(
-            sfn.Condition.string_equals("$.dynamodb_key.type", "needs_glue"),
-            check_execute_raw
-        )
-        
-        # Configurar check_execute_raw para saltar raw_job si execute_raw es false
-        check_execute_raw.when(
-            sfn.Condition.boolean_equals("$.execute_raw", False),
-            stage_job_by_glue  # Si execute_raw es false, va directo a stage_job_by_glue
-        ).otherwise(raw_job)  # De lo contrario, va a raw_job
-        
-        raw_job.next(stage_job_by_glue)
-        
-        needs_query_map.iterator(needs_glue)
+        # Conectar el flujo para needs_query_map
         needs_query_map.next(get_endpoint)
         get_endpoint.next(crawler_job)
         
+        # Crear el estado Pass para el Map State Iterator
+        pass_state = sfn.Pass(
+            self, "Pass",
+            result=sfn.Result.from_string("SUCCEEDED"),
+            result_path="$.result"
+        )
+        
+        # Conectar Pass con Prepare for Task Creation
+        pass_state.next(prepare_for_task_creation)
+        prepare_for_task_creation.next(needs_query_map)
+        
         # Map exterior para procesar todas las tablas
+        map_iterator = sfn.Chain.start(pass_state)
+        
         map_state = sfn.Map(
             self, "Map State",
             max_concurrency=1,
@@ -408,23 +407,11 @@ class CdkDatalakeIngestBigMagicStack(Stack):
                 "replication_instance_arn.$": "$.replication_instance_arn",
                 "bd_type.$": "$.bd_type",
                 "process.$": "$.process",
-                "execute_raw.$": "$.execute_raw"  # Añadir el parámetro execute_raw
+                "execute_raw.$": "$.execute_raw"
             },
+            iterator=map_iterator,
             result_path=sfn.JsonPath.DISCARD
         )
-        
-        # Construir el flujo para el Map exterior
-        update_start_value_sql.next(start_value_updated)
-        
-        start_value_updated.when(
-            sfn.Condition.string_equals("$.result", "SUCCEEDED"),
-            prepare_for_task_creation
-        ).otherwise(record_failed)
-        
-        prepare_for_task_creation.next(needs_query_map)
-        
-        map_state.iterator(update_start_value_sql)
-        map_state.next(delete_replication_instance)
         
         # Configurar el flujo principal
         needs_replication_instance.when(
@@ -437,12 +424,13 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         # Definir el flujo de trabajo completo
         definition = needs_replication_instance
         
-        # Crear la máquina de estados
-        config = StepFunctionConfig(
-            name="light_transform_bigmagic",
-            definition=definition
+        # Crear la máquina de estados con timeout
+        state_machine = sfn.StateMachine(
+            self, "DatalakeIngestionWorkflow",
+            definition=definition,
+            timeout=cdk.Duration.seconds(3600)
         )
         
-        self.state_function = self.builder.build_step_function(config)
+        return state_machine
         
         

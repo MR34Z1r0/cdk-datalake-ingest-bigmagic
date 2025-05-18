@@ -9,6 +9,7 @@ logger.setLevel(logging.INFO)
 
 def lambda_handler(event, context):
     try:
+        logger.info("event : " + str(event))
         client = boto3.resource('dynamodb')
         dynamo_table_name = os.getenv('DYNAMO_DB_TABLE')
         config_table_metadata = client.Table(dynamo_table_name)
@@ -38,7 +39,8 @@ def lambda_handler(event, context):
             'result': "SUCCEEDED",
             'dynamodb_key': result,
             'replication_instance_arn': event['replication_instance_arn'],
-            'process': event['process']
+            'process': event['process'],
+            'execute_raw': event['execute_raw']            
         }
     except Exception as e:
         logger.info("exception : " + str(e))

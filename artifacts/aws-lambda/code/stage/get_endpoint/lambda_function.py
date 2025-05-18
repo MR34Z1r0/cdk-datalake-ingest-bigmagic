@@ -20,22 +20,15 @@ def send_success_message(topic_arn, endpoint_name, process_id):
 
 def lambda_handler(event, context):
     try:
+        logger.info(event)
         client = boto3.resource('dynamodb')
         dynamo_table_name = os.getenv('DYNAMO_DB_TABLE')
         topic_arn = os.getenv("TOPIC_ARN")
         config_table_metadata = client.Table(dynamo_table_name)
-        if event[0].__class__ == list:
-            table = event[0][0]['dynamodb_key']
-            replication_instance_arn = event[0][0]['replication_instance_arn']
-
-        else:
-            if 'Error' in event[0].keys():
-                table = json.loads(event[0]['Cause'])['Arguments']['--TABLE_NAME']
-                replication_instance_arn = "can't find DMS ARN"
-            else:
-                table = event[0]['glue_result']['Arguments']['--TABLE_NAME']
-                replication_instance_arn = event[0]['replication_instance_arn']
-
+        
+        table = event[0]['glue_result']['Arguments']['--TABLE_NAME']
+        replication_instance_arn = None
+          
         instance_class = ""
         bd_type = ""
         table_names = ""
