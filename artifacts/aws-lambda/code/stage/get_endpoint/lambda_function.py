@@ -8,7 +8,39 @@ import boto3
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-
+def find_key(data, key_to_find):
+    """
+    Busca recursivamente una clave en un diccionario anidado y devuelve la clave y su valor.
+    
+    Args:
+        data: El diccionario en el que buscar
+        key_to_find: La clave que se busca
+        
+    Returns:
+        Un diccionario con la clave encontrada y su valor, o None si no se encuentra
+    """
+    # Caso base: si data es un diccionario
+    if isinstance(data, dict):
+        # Comprueba si la clave está en este nivel
+        if key_to_find in data:
+            return {key_to_find: data[key_to_find]}
+        
+        # Busca en los valores del diccionario
+        for key, value in data.items():
+            result = find_key(value, key_to_find)
+            if result:
+                return result
+    
+    # Si data es una lista, busca en cada elemento
+    elif isinstance(data, list):
+        for item in data:
+            result = find_key(item, key_to_find)
+            if result:
+                return result
+    
+    # No se encontró
+    return None
+    
 def send_success_message(topic_arn, endpoint_name, process_id):
     client = boto3.client("sns")
     logger.info(f"sending succeded message for {endpoint_name} : {process_id}")
@@ -16,7 +48,6 @@ def send_success_message(topic_arn, endpoint_name, process_id):
         TopicArn=topic_arn,
         Message=f"successfully load tables from process : {process_id} Source : {endpoint_name}"
     )
-
 
 def lambda_handler(event, context):
     try:
@@ -26,11 +57,18 @@ def lambda_handler(event, context):
         topic_arn = os.getenv("TOPIC_ARN")
         config_table_metadata = client.Table(dynamo_table_name)
         
-        table = event[0]['glue_result']['Arguments']['--TABLE_NAME']
-        replication_instance_arn = None
+        key = find_key(event, "stage_job_result")
+        if key is None:
+            logger.error("Key 'stage_job_result' not found in event")
+            return {
+                'result': "FAILED",
+                'endpoint': "",
+                'table_names': "",
+                'message_error': "Key 'stage_job_result' not found in event"
+            }
+
+        table = key['stage_job_result']['Arguments']['--TABLE_NAME']
           
-        instance_class = ""
-        bd_type = ""
         table_names = ""
         table_data = config_table_metadata.get_item(Key={'TARGET_TABLE_NAME': table})['Item']
         endpoint = table_data['ENDPOINT']
@@ -40,7 +78,7 @@ def lambda_handler(event, context):
             raw_failed_tables = config_table_metadata.scan(
                 FilterExpression=f"ENDPOINT = :val1 AND ACTIVE_FLAG = :val2 AND STATUS_RAW = :val3 ",
                 ExpressionAttributeValues={
-                    ':val1': endpoint.strip(),
+                    ':val1': endpoint,
                     ':val2': 'Y',
                     ':val3': 'FAILED'
                 }
@@ -50,38 +88,31 @@ def lambda_handler(event, context):
             stage_failed_tables = config_table_metadata.scan(
                 FilterExpression=f"ENDPOINT = :val1 AND ACTIVE_FLAG = :val2 AND STATUS_STAGE = :val3 ",
                 ExpressionAttributeValues={
-                    ':val1': endpoint.strip(),
+                    ':val1': endpoint,
                     ':val2': 'Y',
                     ':val3': 'FAILED'
                 }
             )
             logger.info(f"failed tables in raw: {stage_failed_tables}")
-            if (not 'Items' in raw_failed_tables.keys() or raw_failed_tables['Items'] == []) and (not 'Items' in stage_failed_tables.keys() or raw_failed_tables['Items'] == []):
-                send_success_message(topic_arn, endpoint, process_id)
+            #if (not 'Items' in raw_failed_tables.keys() or raw_failed_tables['Items'] == []) and (not 'Items' in stage_failed_tables.keys() or raw_failed_tables['Items'] == []):
+            #    send_success_message(topic_arn, endpoint, process_id)
 
         except Exception as e:
             logger.error(str(e))
 
         return {
             'result': "SUCCESS",
-            'replication_instance_arn': replication_instance_arn,
-            'instance_class': instance_class,
             'endpoint': endpoint,
-            'bd_type': bd_type,
             'table_names': table_names,
             'process_id': process_id
         }
 
     except Exception as e:
         logger.error("Exception: {}".format(e))
-        event[0]['result'] = "FAILED"
-
         return {
             'result': "FAILED",
-            'replication_instance_arn': "",
-            'instance_class': "",
             'endpoint': "",
-            'bd_type': "",
-            'table_names': ""
+            'table_names': "",
+            'message_error': str(e)
         }
     
