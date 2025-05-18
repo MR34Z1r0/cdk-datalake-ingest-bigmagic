@@ -262,7 +262,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         # Estado para preparación de creación de tareas
         prepare_for_task_creation = tasks.LambdaInvoke(
             self, "Prepare for Task Creation",
-            lambda_function=self.prepare_dms_creation_task_lambda,
+            lambda_function=self.lambda_prepare_dms_creation_task,
             result_path="$",
             output_path="$.Payload"
         )
@@ -278,7 +278,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         # Estado para obtener endpoint
         get_endpoint = tasks.LambdaInvoke(
             self, "Get Endpoint",
-            lambda_function=self.get_endpoint_lambda
+            lambda_function=self.lambda_get_endpoint
         )
         
         # Estado de error para el trabajo raw
