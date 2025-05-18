@@ -466,11 +466,11 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         # Definir el flujo de trabajo completo
         definition = needs_replication_instance
         
-        # Crear la máquina de estados con timeout
-        state_machine = sfn.StateMachine(
-            self, "DatalakeIngestionWorkflow",
-            definition=definition,
-            timeout=Duration.seconds(3600)
+        # Crear la máquina de estados
+        config = StepFunctionConfig(
+            name="light_transform_bigmagic",
+            definition=definition
         )
         
-        return state_machine
+        self.state_function = self.builder.build_step_function(config)
+        
