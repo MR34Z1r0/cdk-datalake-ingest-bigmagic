@@ -13,14 +13,8 @@ args = getResolvedOptions(
 
 # Configuración del logger
 logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger(args['JOB_NAME'])
+logger = logging.getLogger("crawler_stage")
 logger.setLevel(os.environ.get("LOGGING", logging.DEBUG))
-
-# Configuración de zona horaria
-TZ_LIMA = pytz.timezone('America/Lima')
-YEARS_LIMA = dt.datetime.now(TZ_LIMA).strftime('%Y')
-MONTHS_LIMA = dt.datetime.now(TZ_LIMA).strftime('%m')
-DAYS_LIMA = dt.datetime.now(TZ_LIMA).strftime('%d')
 
 # Clase utilitaria para gestionar recursos de AWS Glue
 class GlueCrawlerManager:

@@ -254,7 +254,9 @@ class CdkDatalakeIngestBigMagicStack(Stack):
 
     def create_step_functions(self):
         """Create a Step Function definition for the Datalake Ingestion workflow"""
-        
+        LAMBDA_RETRY = 2
+        GLUE_RETRY = 2
+
         # Process Table preparation task
         prepare_table = tasks.LambdaInvoke(
             self, "Prepare Table",
@@ -267,7 +269,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             errors=["Lambda.ClientExecutionTimeoutException", "Lambda.ServiceException", 
                     "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
             interval=Duration.seconds(2),
-            max_attempts=6,
+            max_attempts=LAMBDA_RETRY,
             backoff_rate=2
         )
         
@@ -282,7 +284,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             errors=["Lambda.ClientExecutionTimeoutException", "Lambda.ServiceException", 
                     "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
             interval=Duration.seconds(2),
-            max_attempts=6,
+            max_attempts=LAMBDA_RETRY,
             backoff_rate=2
         )
         
@@ -323,7 +325,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         
         raw_job.add_retry(
             errors=["Glue.AWSGlueException", "Glue.ConcurrentRunsExceededException"],
-            max_attempts=10,
+            max_attempts=GLUE_RETRY,
             backoff_rate=5
         )
         
@@ -345,7 +347,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         
         stage_job.add_retry(
             errors=["Glue.AWSGlueException", "Glue.ConcurrentRunsExceededException"],
-            max_attempts=10,
+            max_attempts=GLUE_RETRY,
             backoff_rate=5
         )
         
@@ -368,7 +370,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         
         crawler_job.add_retry(
             errors=["States.ALL"],
-            max_attempts=10,
+            max_attempts=GLUE_RETRY,
             backoff_rate=5
         )
         

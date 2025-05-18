@@ -26,7 +26,7 @@ args = getResolvedOptions(
     sys.argv, ['JOB_NAME', 'S3_RAW_PREFIX', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'ARN_TOPIC_FAILED','DYNAMO_STAGE_COLUMNS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
 
 logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger(args['JOB_NAME'])
+logger = logging.getLogger("light_transform")
 logger.setLevel(os.environ.get("LOGGING", logging.INFO))
 
 TZ_LIMA = pytz.timezone('America/Lima')
