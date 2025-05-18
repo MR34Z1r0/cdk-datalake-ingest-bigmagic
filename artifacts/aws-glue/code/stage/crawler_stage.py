@@ -9,11 +9,11 @@ from awsglue.utils import getResolvedOptions
 # Obtener parámetros del trabajo
 args = getResolvedOptions(
     sys.argv, ['JOB_NAME', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 
-                'INPUT_ENDPOINT', 'PROCESS_ID', 'ARN_ROLE_CRAWLER', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
+                'ENDPOINT', 'PROCESS_ID', 'ARN_ROLE_CRAWLER', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
 
 # Configuración del logger
 logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger("crawler_stage")
+logger = logging.getLogger(args['JOB_NAME'])
 logger.setLevel(os.environ.get("LOGGING", logging.DEBUG))
 
 # Clase utilitaria para gestionar recursos de AWS Glue
@@ -331,7 +331,7 @@ def main():
         s3_target = args['S3_STAGE_PREFIX']
         arn_role_crawler = args['ARN_ROLE_CRAWLER']
         job_name = args['JOB_NAME']
-        endpoint_name = args['INPUT_ENDPOINT']
+        endpoint_name = args['ENDPOINT']
         team = args['TEAM']
         data_source = args['DATA_SOURCE']
         
