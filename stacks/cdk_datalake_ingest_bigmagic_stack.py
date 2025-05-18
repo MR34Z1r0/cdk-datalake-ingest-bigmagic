@@ -262,7 +262,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         # Estado para preparación de creación de tareas
         prepare_for_task_creation = tasks.LambdaInvoke(
             self, "Prepare for Task Creation",
-            lambda_function=self.lambda_prepare_dms_creation_task,
+            lambda_function=self.prepare_dms_creation_task_lambda,
             result_path="$",
             output_path="$.Payload"
         )
@@ -270,7 +270,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         prepare_for_task_creation.add_retry(
             errors=["Lambda.ClientExecutionTimeoutException", "Lambda.ServiceException", 
                     "Lambda.AWSLambdaException", "Lambda.SdkClientException"],
-            interval=Duration.seconds(2),
+            interval=cdk.Duration.seconds(2),
             max_attempts=6,
             backoff_rate=2
         )
@@ -278,12 +278,15 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         # Estado para obtener endpoint
         get_endpoint = tasks.LambdaInvoke(
             self, "Get Endpoint",
-            lambda_function=self.lambda_get_endpoint
+            lambda_function=self.get_endpoint_lambda
         )
         
         # Estado de error para el trabajo raw
         error_raw_job = sfn.Pass(
-            self, "error raw job"
+            self, "error raw job",
+            # Aseguramos un output consistente incluso en caso de error
+            result_path="$.glue_error_result",
+            output_path="$"
         )
         
         # Estado para job raw de Glue
@@ -315,7 +318,8 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             integration_pattern=sfn.IntegrationPattern.RUN_JOB,
             arguments=sfn.TaskInput.from_object({
                 "--TABLE_NAME.$": "$.dynamodb_key.table"
-            })
+            }),
+            result_path="$.stage_job_result"
         )
         
         stage_job_by_glue.add_retry(
@@ -324,14 +328,30 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             backoff_rate=5
         )
         
+        # Añadimos un estado Pass para normalizar el output cuando execute_raw es false
+        normalize_output_when_false = sfn.Pass(
+            self, "normalize output when false",
+            parameters={
+                # Agregar un campo glue_result simulado para mantener estructura consistente
+                "glue_result": {
+                    "JobRunId": "N/A-skipped",
+                    "Status": "SKIPPED"
+                },
+                # Mantener todos los demás campos del estado
+                "dynamodb_key.$": "$.dynamodb_key",
+                "replication_instance_arn.$": "$.replication_instance_arn",
+                "process.$": "$.process",
+                "execute_raw.$": "$.execute_raw",
+                "stage_job_result.$": "$.stage_job_result"
+            }
+        )
+        
         # Estado para job de crawler
         crawler_job = tasks.GlueStartJobRun(
             self, "crawler job",
             glue_job_name="sofia-dev-datalake-crawler_stage-job",
             integration_pattern=sfn.IntegrationPattern.RUN_JOB,
             arguments=sfn.TaskInput.from_object({
-                "--additional-python-modules": 'boto3==1.26.42',
-                "--ARN_ROLE_CRAWLER": self.role_crawler_stage.role_arn,
                 "--INPUT_ENDPOINT.$": "$.endpoint",
                 "--PROCESS_ID.$": "$.process_id"
             })
@@ -349,10 +369,17 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         # Estado para verificar execute_raw
         check_execute_raw = sfn.Choice(self, "Check Execute Raw")
         
+        # Estado para estandarizar el output final del mapa interno
+        standardize_map_output = sfn.Pass(
+            self, "standardize map output",
+            result_path=sfn.JsonPath.DISCARD  # Mantener la entrada intacta
+        )
+        
         # Configurar el flujo para Check Execute Raw
         check_execute_raw.when(
             sfn.Condition.boolean_equals("$.execute_raw", False),
-            stage_job_by_glue
+            # Cuando execute_raw es false, pasamos por el normalizador y luego al stage job
+            normalize_output_when_false.next(stage_job_by_glue)
         ).otherwise(raw_job)
         
         # Definir transiciones para needs_glue
@@ -364,9 +391,16 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         # Conectar flujo de trabajo para raw_job y stage_job
         raw_job.next(stage_job_by_glue)
         
-        # Map interno para necesidades de consultas
-        needs_query_iterator = sfn.Chain.start(needs_glue)
+        # Ambos caminos (raw job o stage job directo) deben pasar por el estandarizador antes de terminar
+        stage_job_by_glue.next(standardize_map_output)
+        error_raw_job.next(stage_job_by_glue)
         
+        # Crear el primer estado Pass para el Map interno
+        pass_internal = sfn.Pass(
+            self, "Pass Internal"
+        )
+        
+        # Map interno para necesidades de consultas - sin pasar iterator directamente
         needs_query_map = sfn.Map(
             self, "Needs Query?",
             max_concurrency=15,
@@ -377,14 +411,22 @@ class CdkDatalakeIngestBigMagicStack(Stack):
                 "process.$": "$.process",
                 "execute_raw.$": "$.execute_raw"
             },
-            iterator=needs_query_iterator
+            result_selector={
+                # Definimos explícitamente qué campos queremos en el output del map
+                "result.$": "$[*]",
+                "status": "COMPLETED"
+            },
+            result_path="$.query_results"  # Guardamos el resultado en un path específico
         )
+        
+        # Definir el iterator después de crear el Map
+        needs_query_map.iterator(needs_glue)
         
         # Conectar el flujo para needs_query_map
         needs_query_map.next(get_endpoint)
         get_endpoint.next(crawler_job)
         
-        # Crear el estado Pass para el Map State Iterator
+        # Crear el estado Pass para el Map State exterior
         pass_state = sfn.Pass(
             self, "Pass",
             result=sfn.Result.from_string("SUCCEEDED"),
@@ -395,9 +437,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         pass_state.next(prepare_for_task_creation)
         prepare_for_task_creation.next(needs_query_map)
         
-        # Map exterior para procesar todas las tablas
-        map_iterator = sfn.Chain.start(pass_state)
-        
+        # Map exterior para procesar todas las tablas - sin pasar iterator directamente
         map_state = sfn.Map(
             self, "Map State",
             max_concurrency=1,
@@ -409,9 +449,11 @@ class CdkDatalakeIngestBigMagicStack(Stack):
                 "process.$": "$.process",
                 "execute_raw.$": "$.execute_raw"
             },
-            iterator=map_iterator,
             result_path=sfn.JsonPath.DISCARD
         )
+        
+        # Definir el iterator después de crear el Map
+        map_state.iterator(pass_state)
         
         # Configurar el flujo principal
         needs_replication_instance.when(
@@ -428,9 +470,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         state_machine = sfn.StateMachine(
             self, "DatalakeIngestionWorkflow",
             definition=definition,
-            timeout=Duration.seconds(3600)
+            timeout=cdk.Duration.seconds(3600)
         )
         
         return state_machine
-        
-        
