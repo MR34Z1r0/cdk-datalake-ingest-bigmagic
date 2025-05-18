@@ -23,7 +23,7 @@ from pyspark.sql.session import SparkSession
 from pyspark.sql.types import *
 
 args = getResolvedOptions(
-    sys.argv, ['JOB_NAME', 'S3_RAW_PREFIX', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'TOPIC_ARN','DYNAMO_STAGE_COLUMNS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
+    sys.argv, ['JOB_NAME', 'S3_RAW_PREFIX', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'ARN_TOPIC_FAILED','DYNAMO_STAGE_COLUMNS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
 
 logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
 logger = logging.getLogger(args['JOB_NAME'])
@@ -545,7 +545,7 @@ except NoDataToMigrateException as e:
         'CONTEXT': f"{{server='[{endpoint_data['ENDPOINT_NAME']},{endpoint_data['SRC_SERVER_NAME']}]', user='{endpoint_data['SRC_DB_USERNAME']}', table='{table_data['SOURCE_TABLE']}'}}"
     }
     add_log_to_dynamodb(dynamo_logs_table, log)     
-    send_error_message(args['TOPIC_ARN'], table_data['TARGET_TABLE_NAME'], str(e))
+    send_error_message(args['ARN_TOPIC_FAILED'], table_data['TARGET_TABLE_NAME'], str(e))
     logger.error(e)
 
 except Exception as e:
@@ -563,6 +563,6 @@ except Exception as e:
         'CONTEXT': f"{{server='[{endpoint_data['ENDPOINT_NAME']},{endpoint_data['SRC_SERVER_NAME']}]', user='{endpoint_data['SRC_DB_USERNAME']}', table='{table_data['SOURCE_TABLE']}'}}"
     }
     add_log_to_dynamodb(dynamo_logs_table, log) 
-    send_error_message(args['TOPIC_ARN'], table_data['TARGET_TABLE_NAME'], str(e))
+    send_error_message(args['ARN_TOPIC_FAILED'], table_data['TARGET_TABLE_NAME'], str(e))
     logger.error(e)
     logger.error("Error while importing data")
