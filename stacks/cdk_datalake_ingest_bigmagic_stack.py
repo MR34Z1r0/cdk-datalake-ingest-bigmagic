@@ -185,11 +185,11 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             '--datalake-formats': "delta",
             }
                 
-        job_name="extract_data_bigmagic_shell"
+        job_name="extract_data_bigmagic"
         config = GlueJobConfig(
             job_name=job_name,
             executable=glue.JobExecutable.python_shell(
-                glue_version=glue.GlueVersion.V3_0,
+                glue_version=glue.GlueVersion.V2_0,
                 python_version=glue.PythonVersion.THREE,
                 script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_RAW}/{job_name}.py")
             ),
@@ -223,7 +223,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         config = GlueJobConfig(
             job_name=job_name,
             executable=glue.JobExecutable.python_shell(
-                glue_version=glue.GlueVersion.V3_0,
+                glue_version=glue.GlueVersion.V2_0,
                 python_version=glue.PythonVersion.THREE,
                 script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_STAGE}/{job_name}.py")
             ),
