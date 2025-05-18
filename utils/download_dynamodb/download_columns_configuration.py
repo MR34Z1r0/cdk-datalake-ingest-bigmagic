@@ -4,15 +4,15 @@ import os
 
 # Configure DynamoDB client
 region_name = 'us-east-1'
-boto3.setup_default_session(profile_name='prd-valorx-admin')
-dynamodb = boto3.resource('dynamodb', region_name=region_name)
+boto3.setup_default_session(profile_name='prd-valorx-admin', region_name=region_name)
+dynamodb = boto3.resource('dynamodb')
 
 # Table information
 table_name = 'sofia-dev-datalake-columns-specifications-ddb'  # Production table
 table = dynamodb.Table(table_name)
 
 # Endpoints to export
-endpoints = ['BDDATA']  # Production endpoint
+endpoints = ['PEBDDATA']  # Production endpoint
 
 def convertir_desde_booleano(valor):
     if valor is True:
@@ -72,7 +72,8 @@ def descargar_dynamo_a_csv(archivo_csv):
         fieldnames = required_columns + [f for f in fieldnames if f not in required_columns]
         
         with open(archivo_csv, 'w', newline='') as archivo:
-            writer = csv.DictWriter(archivo, fieldnames=fieldnames)
+            # Aquí está el cambio: especificar delimiter='|'
+            writer = csv.DictWriter(archivo, fieldnames=fieldnames, delimiter='|')
             writer.writeheader()
             
             for item in items:
@@ -92,4 +93,4 @@ def descargar_dynamo_a_csv(archivo_csv):
         print("No se encontraron elementos para exportar.")
 
 # Execute the function
-descargar_dynamo_a_csv('datalake_columns_bigmagic_' + endpoints[0] + '.csv')
+descargar_dynamo_a_csv('datalake_columns_bigmagic.csv')

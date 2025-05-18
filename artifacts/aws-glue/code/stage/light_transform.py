@@ -25,9 +25,9 @@ from pyspark.sql.types import *
 args = getResolvedOptions(
     sys.argv, ['JOB_NAME', 'S3_RAW_PREFIX', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'ARN_TOPIC_FAILED','DYNAMO_STAGE_COLUMNS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
 
-logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger(args['JOB_NAME'])
-logger.setLevel(os.environ.get("LOGGING", logging.INFO))
+# Configuración del logger
+logger = logging.getLogger()
+logger.setLevel(logging.INFO)
 
 TZ_LIMA = pytz.timezone('America/Lima')
 YEARS_LIMA = dt.datetime.now(TZ_LIMA).strftime('%Y')

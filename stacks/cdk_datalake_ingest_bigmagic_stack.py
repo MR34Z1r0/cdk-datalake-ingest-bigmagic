@@ -148,6 +148,25 @@ class CdkDatalakeIngestBigMagicStack(Stack):
 
         self.role_crawler_stage = self.builder.build_role(config)
 
+        policies_crawler_stage = iam.PolicyStatement(
+            effect=iam.Effect.ALLOW,
+            actions=["glue:GetCrawler",
+                     "glue:GetDatabase",
+                     "glue:UpdateCrawler",
+                     "glue:GetJob",
+                     "glue:CreateDatabase",
+                     "glue:CreateCrawler",
+                     "glue:StartCrawler",
+                     "lakeformation:GrantPermissions",
+                     "lakeformation:AddLFTagsToResource",
+                     "iam:PassRole"
+                     ],
+            # allows on everything, because the resources doesn't exist yet
+            resources=["*"]
+        )
+
+        self.role_crawler_stage.add_to_policy(policies_crawler_stage)
+
         default_arguments={
             '--S3_RAW_PREFIX': f"s3://{self.s3_raw_bucket.bucket_name}/",
             '--S3_STAGE_PREFIX': f"s3://{self.s3_stage_bucket.bucket_name}/",
@@ -170,7 +189,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         config = GlueJobConfig(
             job_name=job_name,
             executable=glue.JobExecutable.python_shell(
-                glue_version=glue.GlueVersion.V1_0,
+                glue_version=glue.GlueVersion.V3_0,
                 python_version=glue.PythonVersion.THREE,
                 script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_RAW}/{job_name}.py")
             ),
@@ -204,14 +223,15 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         config = GlueJobConfig(
             job_name=job_name,
             executable=glue.JobExecutable.python_shell(
-                glue_version=glue.GlueVersion.V1_0,
+                glue_version=glue.GlueVersion.V3_0,
                 python_version=glue.PythonVersion.THREE,
                 script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_STAGE}/{job_name}.py")
             ),
             default_arguments=default_arguments,
             continuous_logging=glue.ContinuousLoggingProps(enabled=True),
-            timeout=Duration.minutes(30),
-            max_concurrent_runs=200
+            timeout=Duration.minutes(60),
+            max_concurrent_runs=20,
+            role=self.role_crawler_stage
         )
         
         self.job_crawler_stage = self.builder.build_glue_job(config)

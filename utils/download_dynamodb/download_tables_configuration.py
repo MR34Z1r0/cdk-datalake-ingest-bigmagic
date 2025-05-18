@@ -4,15 +4,15 @@ import os
 
 # Configure DynamoDB client
 region_name = 'us-east-1'
-boto3.setup_default_session(profile_name='prd-valorx-admin')
-dynamodb = boto3.resource('dynamodb', region_name=region_name)
+boto3.setup_default_session(profile_name='prd-valorx-admin', region_name=region_name)
+dynamodb = boto3.resource('dynamodb')
 
 # Table information
 table_name = 'sofia-dev-datalake-configuration-ddb'  # Production table
 table = dynamodb.Table(table_name)
 
 # Endpoints to export
-endpoints = ['BDDATA']  # Production endpoint - sellin
+endpoints = ['PEBDDATA']  # Production endpoint - sellin
 
 def descargar_dynamo_a_csv(archivo_csv):
     items = []
@@ -58,7 +58,8 @@ def descargar_dynamo_a_csv(archivo_csv):
         ]
         
         with open(archivo_csv, 'w', newline='') as archivo:
-            writer = csv.DictWriter(archivo, fieldnames=required_columns)
+            # Modificación aquí: agregar delimiter='|'
+            writer = csv.DictWriter(archivo, fieldnames=required_columns, delimiter='|')
             writer.writeheader()
             
             for item in items:
@@ -77,4 +78,4 @@ def descargar_dynamo_a_csv(archivo_csv):
         print("No se encontraron elementos para exportar.")
 
 # Execute the function
-descargar_dynamo_a_csv('datalake_tables_bigmagic_' + endpoints[0] + '.csv')
+descargar_dynamo_a_csv('datalake_tables_bigmagic.csv')
