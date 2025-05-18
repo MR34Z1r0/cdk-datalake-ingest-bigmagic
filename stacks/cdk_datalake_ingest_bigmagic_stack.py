@@ -360,7 +360,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             glue_job_name=self.job_light_transform.job_name,
             integration_pattern=sfn.IntegrationPattern.RUN_JOB,
             arguments=sfn.TaskInput.from_object({
-                "--JOB_NAME.$": self.job_light_transform.job_name,
+                "--JOB_NAME": self.job_light_transform.job_name,
                 "--TABLE_NAME.$": "$.dynamodb_key.table"
             }),
             result_path="$.stage_job_result"
@@ -384,7 +384,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             glue_job_name=self.job_crawler_stage.job_name,
             integration_pattern=sfn.IntegrationPattern.RUN_JOB,
             arguments=sfn.TaskInput.from_object({
-                "--JOB_NAME.$": self.job_crawler_stage.job_name,
+                "--JOB_NAME": self.job_crawler_stage.job_name,
                 "--ENDPOINT.$": "$.endpoint",
                 "--PROCESS_ID.$": "$.process_id"
             })
