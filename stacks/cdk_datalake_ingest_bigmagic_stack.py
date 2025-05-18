@@ -99,7 +99,13 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         
     def create_lambdas(self):
         """Create a lambda function definition for the Datalake Ingest BigMagic stack"""
-        
+        # Common environment variables for all Lambda functions
+        common_env_vars = {
+            "DYNAMO_CONFIG_TABLE": self.dynamodb_configuration_table.table_name,
+            'ARN_TOPIC_FAILED': self.sns_failed_topic.topic_arn,
+            'ARN_TOPIC_SUCCESS': self.sns_success_topic.topic_arn
+        }
+
         function_name = "get_endpoint"
         lambda_config = LambdaConfig(
             function_name=function_name,
@@ -107,7 +113,8 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             code_path=f"{self.Paths.LOCAL_ARTIFACTS_LAMBDA_CODE_STAGE}",
             runtime=_lambda.Runtime.PYTHON_3_11,
             memory_size=512,
-            timeout=Duration.seconds(30)
+            timeout=Duration.seconds(30),
+            environment=common_env_vars
         )
         self.lambda_get_endpoint = self.builder.build_lambda_function(lambda_config)
          
@@ -116,13 +123,12 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             function_name=function_name,
             handler=f"{function_name}/lambda_function.lambda_handler",
             code_path=f"{self.Paths.LOCAL_ARTIFACTS_LAMBDA_CODE_STAGE}",
-            runtime=_lambda.Runtime.PYTHON_3_9,
+            runtime=_lambda.Runtime.PYTHON_3_11,
             memory_size=512,
-            timeout=Duration.seconds(30)
+            timeout=Duration.seconds(30),
+            environment=common_env_vars
         )
         self.lambda_prepare_table = self.builder.build_lambda_function(lambda_config)
-
-
         
     def create_glue_jobs(self):
         """Create a job definition for the Datalake Ingest BigMagic stack"""
@@ -146,7 +152,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             '--S3_RAW_PREFIX': f"s3://{self.s3_raw_bucket.bucket_name}/",
             '--S3_STAGE_PREFIX': f"s3://{self.s3_stage_bucket.bucket_name}/",
             '--ARN_TOPIC_FAILED': self.sns_failed_topic.topic_arn,
-            '--ARN_SUCCESS_FAILED': self.sns_success_topic.topic_arn,
+            '--ARN_TOPIC_SUCCESS': self.sns_success_topic.topic_arn,
             '--ARN_ROLE_CRAWLER': self.role_crawler_stage.role_arn,
             '--PROJECT_NAME' : self.PROJECT_CONFIG.project_name,
             '--TEAM' : self.PROJECT_CONFIG.app_config["team"],

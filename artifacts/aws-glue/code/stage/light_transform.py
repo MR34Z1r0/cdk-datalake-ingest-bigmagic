@@ -22,8 +22,11 @@ from pyspark.sql.types import StringType, IntegerType
 from pyspark.sql.session import SparkSession
 from pyspark.sql.types import *
 
+args = getResolvedOptions(
+    sys.argv, ['JOB_NAME', 'S3_RAW_PREFIX', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'TOPIC_ARN','DYNAMO_STAGE_COLUMNS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
+
 logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger("stage job")
+logger = logging.getLogger(args['JOB_NAME'])
 logger.setLevel(os.environ.get("LOGGING", logging.INFO))
 
 TZ_LIMA = pytz.timezone('America/Lima')
@@ -31,10 +34,6 @@ YEARS_LIMA = dt.datetime.now(TZ_LIMA).strftime('%Y')
 MONTHS_LIMA = dt.datetime.now(TZ_LIMA).strftime('%m')
 DAYS_LIMA = dt.datetime.now(TZ_LIMA).strftime('%d')
 NOW_LIMA = dt.datetime.now(pytz.utc).astimezone(TZ_LIMA)
-
-# @params: [JOB_NAME]
-args = getResolvedOptions(
-    sys.argv, ['JOB_NAME', 'S3_RAW_PREFIX', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'TOPIC_ARN','DYNAMO_STAGE_COLUMNS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
 
 spark = SparkSession \
     .builder \

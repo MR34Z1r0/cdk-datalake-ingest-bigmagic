@@ -41,11 +41,11 @@ def find_key(data, key_to_find):
     # No se encontró
     return None
     
-def send_success_message(topic_arn, endpoint_name, process_id):
+def send_success_message(arn_topic_success, endpoint_name, process_id):
     client = boto3.client("sns")
     logger.info(f"sending succeded message for {endpoint_name} : {process_id}")
     response = client.publish(
-        TopicArn=topic_arn,
+        TopicArn=arn_topic_success,
         Message=f"successfully load tables from process : {process_id} Source : {endpoint_name}"
     )
 
@@ -53,9 +53,9 @@ def lambda_handler(event, context):
     try:
         logger.info(event)
         client = boto3.resource('dynamodb')
-        dynamo_table_name = os.getenv('DYNAMO_DB_TABLE')
-        topic_arn = os.getenv("TOPIC_ARN")
-        config_table_metadata = client.Table(dynamo_table_name)
+        dynamo_config_table = os.getenv('DYNAMO_CONFIG_TABLE')
+        arn_topic_success = os.getenv("ARN_TOPIC_SUCCESS")
+        db_table_config = client.Table(dynamo_config_table)
         
         key = find_key(event, "stage_job_result")
         if key is None:
@@ -70,12 +70,12 @@ def lambda_handler(event, context):
         table = key['stage_job_result']['Arguments']['--TABLE_NAME']
           
         table_names = ""
-        table_data = config_table_metadata.get_item(Key={'TARGET_TABLE_NAME': table})['Item']
+        table_data = db_table_config.get_item(Key={'TARGET_TABLE_NAME': table})['Item']
         endpoint = table_data['ENDPOINT']
         process_id = table_data['PROCESS_ID']
         
         try:
-            raw_failed_tables = config_table_metadata.scan(
+            raw_failed_tables = db_table_config.scan(
                 FilterExpression=f"ENDPOINT = :val1 AND ACTIVE_FLAG = :val2 AND STATUS_RAW = :val3 ",
                 ExpressionAttributeValues={
                     ':val1': endpoint,
@@ -85,7 +85,7 @@ def lambda_handler(event, context):
             )
             logger.info(f"failed tables in raw: {raw_failed_tables}")
 
-            stage_failed_tables = config_table_metadata.scan(
+            stage_failed_tables = db_table_config.scan(
                 FilterExpression=f"ENDPOINT = :val1 AND ACTIVE_FLAG = :val2 AND STATUS_STAGE = :val3 ",
                 ExpressionAttributeValues={
                     ':val1': endpoint,
@@ -95,7 +95,7 @@ def lambda_handler(event, context):
             )
             logger.info(f"failed tables in raw: {stage_failed_tables}")
             #if (not 'Items' in raw_failed_tables.keys() or raw_failed_tables['Items'] == []) and (not 'Items' in stage_failed_tables.keys() or raw_failed_tables['Items'] == []):
-            #    send_success_message(topic_arn, endpoint, process_id)
+            #    send_success_message(arn_topic_success, endpoint, process_id)
 
         except Exception as e:
             logger.error(str(e))

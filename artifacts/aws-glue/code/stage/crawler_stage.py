@@ -6,9 +6,14 @@ import boto3
 import pytz
 from awsglue.utils import getResolvedOptions
 
+# Obtener parámetros del trabajo
+args = getResolvedOptions(
+    sys.argv, ['JOB_NAME', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 
+                'INPUT_ENDPOINT', 'PROCESS_ID', 'ARN_ROLE_CRAWLER', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
+
 # Configuración del logger
 logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger("IngestionStageDynamicsCrm")
+logger = logging.getLogger(args['JOB_NAME'])
 logger.setLevel(os.environ.get("LOGGING", logging.DEBUG))
 
 # Configuración de zona horaria
@@ -322,12 +327,7 @@ def prepare_delta_targets(glue_crawler_manager, config_table, endpoint_table, ta
 
 def main():
     """Función principal"""
-    try:
-        # Obtener parámetros del trabajo
-        args = getResolvedOptions(
-            sys.argv, ['JOB_NAME', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 
-                      'INPUT_ENDPOINT', 'PROCESS_ID', 'ARN_ROLE_CRAWLER', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
-        
+    try:        
         # Inicializar el gestor de Glue
         glue_crawler_manager = GlueCrawlerManager(logger)
         
