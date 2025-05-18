@@ -28,7 +28,23 @@ jobs:
           if [ -f requirements-dev.txt ]; then
             pip install -r requirements-dev.txt
           fi
+
+      - name: Install custom dependencies
+        run: |
+          # Si está en un repositorio Git privado
+          git clone https://github.com/MR34Z1r0/aje-cdk-libs.git
+          cd aje-cdk-libs
+          pip install -e .
+          cd ..
           
+      - name: Install custom dependencies
+        run: |
+          # Si está en un repositorio Git privado
+          git clone https://github.com/MR34Z1r0/aje-libs.git
+          cd aje-cdk-libs
+          pip install -e .
+          cd ..
+        
       - name: Install AWS CDK
         run: npm install -g aws-cdk
         
