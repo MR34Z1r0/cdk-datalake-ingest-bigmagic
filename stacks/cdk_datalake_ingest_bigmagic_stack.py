@@ -186,20 +186,20 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             }
                 
         job_name="extract_data_bigmagic"
-        config = GlueJobPythonShellConfig(
+        config = GlueJobConfig(
             job_name=job_name,
-            script = f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_RAW}/{job_name}.py",
-            python_version=glue.PythonVersion.THREE,
-            glue_version=glue.GlueVersion.V3_0,
-            description="Extract data from BigMagic",
-            max_capacity=10,            
-            arguments=default_arguments,
+            executable=glue.JobExecutable.python_shell(
+                glue_version=glue.GlueVersion.V3_0,
+                python_version=glue.PythonVersion.THREE,
+                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_RAW}/{job_name}.py")
+            ),
+            default_arguments=default_arguments,
             continuous_logging=glue.ContinuousLoggingProps(enabled=True),
             timeout=Duration.minutes(60),
             max_concurrent_runs=200
         )
         
-        self.job_extract_data_bigmagic = self.builder.build_glue_job_shell(config)
+        self.job_extract_data_bigmagic = self.builder.build_glue_job(config)
         
         job_name="light_transform"
         config = GlueJobConfig(
@@ -220,21 +220,21 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         self.job_light_transform = self.builder.build_glue_job(config)
 
         job_name="crawler_stage"
-        config = GlueJobPythonShellConfig(
+        config = GlueJobConfig(
             job_name=job_name,
-            script = f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_RAW}/{job_name}.py",
-            python_version=glue.PythonVersion.THREE,
-            glue_version=glue.GlueVersion.V3_0,
-            description="Extract data from BigMagic",
-            max_capacity=10,            
-            arguments=default_arguments,
+            executable=glue.JobExecutable.python_shell(
+                glue_version=glue.GlueVersion.V3_0,
+                python_version=glue.PythonVersion.THREE,
+                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_STAGE}/{job_name}.py")
+            ),
+            default_arguments=default_arguments,
             continuous_logging=glue.ContinuousLoggingProps(enabled=True),
             timeout=Duration.minutes(60),
             max_concurrent_runs=20,
-            role=self.role_crawler_stage.role,
+            role=self.role_crawler_stage
         )
         
-        self.job_crawler_stage = self.builder.build_glue_job_shell(config)
+        self.job_crawler_stage = self.builder.build_glue_job(config)
         
         self.s3_raw_bucket.grant_read_write(self.job_extract_data_bigmagic)
         self.dynamodb_configuration_table.grant_read_write_data(self.job_extract_data_bigmagic)
