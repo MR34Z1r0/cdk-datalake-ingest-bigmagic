@@ -262,6 +262,7 @@ class DataExtractor:
     def execute_db_query(self, query):
         """Execute query on the database and return results as DataFrame"""
         try:
+            self.logger.info("Executing query on database: {query}")
             # Use the database helper created by the factory
             if hasattr(self.db_helper, 'execute_query_as_dataframe'):
                 # Directly use dataframe if supported
