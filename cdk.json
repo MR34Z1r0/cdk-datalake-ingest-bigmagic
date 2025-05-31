@@ -26,7 +26,6 @@
         "dev": {
           "artifacts": {
             "local": "./artifacts",
-            "aws_path": "crm",
             "aws_lambda_layers": {
               "layer_aje_libs": "arn:aws:lambda:${region}:${account}:layer:layer_aje_libs:3",
               "layer_powertools": "arn:aws:lambda:${region}:017000801446:layer:AWSLambdaPowertoolsPythonV3-python313-x86_64:11",
@@ -58,31 +57,47 @@
             "logs": "sofia-dev-datalake-logs-ddb"
           },
           "team": "sofia",
-          "datasource": "bigmagic",
+          "datasource": "apdayc",
           "log_level": "DEBUG",
-          "api_gw_name": "agent-resources",
-          "secret_name": "pinecone-api-key",
-          "comment": "Example of chatbot with RAG support and integration with Bedrock, DynamoDB",
-          "meta_endpoint": "https://graph.facebook.com/"
+          "comment": "Process to ingest data from Apdayc to Datalake DEV environment"          
         },
         "prod": {
           "artifacts": {
             "local": "./artifacts",
-            "aws_bucket": "artifacts",
-            "aws_path": "crm",
             "aws_lambda_layers": {
+              "layer_aje_libs": "arn:aws:lambda:${region}:${account}:layer:layer_aje_libs:3",
               "layer_powertools": "arn:aws:lambda:${region}:017000801446:layer:AWSLambdaPowertoolsPythonV3-python313-x86_64:11",
-              "layer_aje_libs": "arn:aws:lambda:${region}:${account}:layer:layer_aje_libs:2",
               "layer_pinecone": "arn:aws:lambda:${region}:${account}:layer:layer_pinecone:1",
-              "layer_docs": "arn:aws:lambda:${region}:${account}:layer:layer_docs:1",
-              "layer_requests": "arn:aws:lambda:${region}:${account}:layer:layer_requests:1"
-            }
+              "layer_docs": "arn:aws:lambda:${region}:${account}:layer:layer_docs:4",
+              "layer_requests": "arn:aws:lambda:${region}:${account}:layer:layer_requests:2",
+              "layer_pyodbc": "arn:aws:lambda:${region}:${account}:layer:layer_pyodbc:2"
+            }              
           },
+          "topic_notifications": {
+              "failed": "sofia-dev-datalake-failed-sns",
+              "success": "sofia-dev-datalake-success-sns"
+          },
+          "sns_notifications": [
+            "miguel.espinoza@ajegroup.com",
+            "da.plataforma@ajegroup.com"
+          ],
+          "s3_buckets": {
+            "artifacts": "sofia-566121885938-us-east-1-dev-datalake-artifacts-s3",
+            "landing": "sofia-566121885938-us-east-1-dev-datalake-landing-s3",
+            "raw": "sofia-566121885938-us-east-1-dev-datalake-raw-s3",
+            "stage": "sofia-566121885938-us-east-1-dev-datalake-stage-s3",
+            "analytics": "sofia-566121885938-us-east-1-dev-datalake-analytics-s3"
+          },
+          "dynamodb_tables":{
+            "configuration": "sofia-dev-datalake-configuration-ddb",
+            "credentials": "sofia-dev-datalake-credentials-ddb",
+            "columns-specifications": "sofia-dev-datalake-columns-specifications-ddb",
+            "logs": "sofia-dev-datalake-logs-ddb"
+          },
+          "team": "sofia",
+          "datasource": "apdayc",
           "log_level": "DEBUG",
-          "api_gw_name": "agent-resources",
-          "secret_name": "pinecone-api-key",  
-          "comment": "Example of chatbot with RAG support and integration with Bedrock, mDynamoDB",
-          "meta_endpoint": "https://graph.facebook.com/"
+          "comment": "Process to ingest data from Apdayc to Datalake PROD environment"
         }
       }
     }

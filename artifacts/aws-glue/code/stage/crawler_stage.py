@@ -4,272 +4,1072 @@ import os
 import sys
 import time
 import json
+import traceback
+from typing import List, Tuple, Dict, Any, Optional
 
 import boto3
 import pytz
 from awsglue.utils import getResolvedOptions
+from botocore.exceptions import ClientError, BotoCoreError
 
-logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger("CrawlerStage")
-logger.setLevel(os.environ.get("LOGGING", logging.INFO))
- 
-# @params: [JOB_NAME]
-args = getResolvedOptions(
-    sys.argv, ['JOB_NAME', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 'ENDPOINT', 'PROCESS_ID', 'ARN_ROLE_CRAWLER', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
- 
-dynamodb = boto3.resource('dynamodb')
-client_glue = boto3.client('glue')
-client_lakeformation = boto3.client('lakeformation')
+# Configuración de logging mejorada
+def setup_logging():
+    """Configura el sistema de logging con formato detallado y manejo de errores"""
+    log_level = os.environ.get("LOGGING", "INFO").upper()
+    
+    # Crear formateador personalizado
+    formatter = logging.Formatter(
+        fmt='%(asctime)s - %(name)s - %(levelname)s - [%(funcName)s:%(lineno)d] - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    
+    # Configurar handler para consola
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setFormatter(formatter)
+    
+    # Configurar logger principal
+    logger = logging.getLogger("CrawlerStage")
+    logger.setLevel(getattr(logging, log_level, logging.INFO))
+    logger.addHandler(console_handler)
+    
+    # Evitar duplicación de logs
+    logger.propagate = False
+    
+    return logger
+
+logger = setup_logging()
+
+# Constantes de configuración
+MAX_RETRIES = 3
+RETRY_DELAY = 5  # segundos
+TIMEOUT_SECONDS = 300  # 5 minutos
+
+class CrawlerStageError(Exception):
+    """Excepción personalizada para errores del CrawlerStage"""
+    pass
+
+def validate_arguments(args: Dict[str, str]) -> None:
+    """Valida que todos los argumentos requeridos estén presentes"""
+    required_args = [
+        'JOB_NAME', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 
+        'DYNAMO_ENDPOINT_TABLE', 'ENDPOINT', 'PROCESS_ID', 
+        'ARN_ROLE_CRAWLER', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'
+    ]
+    
+    missing_args = [arg for arg in required_args if not args.get(arg)]
+    if missing_args:
+        raise CrawlerStageError(f"Argumentos faltantes: {', '.join(missing_args)}")
+    
+    logger.info(f"Validación de argumentos completada exitosamente")
+    logger.debug(f"Argumentos recibidos: {list(args.keys())}")
+
+def retry_on_failure(max_retries: int = MAX_RETRIES, delay: int = RETRY_DELAY):
+    """Decorador para reintentar operaciones que fallan"""
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            last_exception = None
+            
+            for attempt in range(max_retries + 1):
+                try:
+                    if attempt > 0:
+                        logger.info(f"Reintento {attempt}/{max_retries} para {func.__name__}")
+                        time.sleep(delay * attempt)  # Backoff exponencial
+                    
+                    return func(*args, **kwargs)
+                    
+                except (ClientError, BotoCoreError, Exception) as e:
+                    last_exception = e
+                    logger.warning(f"Intento {attempt + 1} falló para {func.__name__}: {str(e)}")
+                    
+                    if attempt == max_retries:
+                        logger.error(f"Todos los reintentos fallaron para {func.__name__}")
+                        break
+            
+            raise last_exception
+        return wrapper
+    return decorator
+
+# Inicialización con validación
+try:
+    logger.info("Iniciando CrawlerStage...")
+    
+    # @params: [JOB_NAME]
+    args = getResolvedOptions(
+        sys.argv, ['JOB_NAME', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 
+                  'DYNAMO_ENDPOINT_TABLE', 'ENDPOINT', 'PROCESS_ID', 
+                  'ARN_ROLE_CRAWLER', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE']
+    )
+    
+    validate_arguments(args)
+    
+    # Inicialización de clientes AWS con manejo de errores
+    logger.info("Inicializando clientes AWS...")
+    
+    dynamodb = boto3.resource('dynamodb')
+    dynamodb_client = boto3.client('dynamodb')  # Cliente adicional para describe_table
+    client_glue = boto3.client('glue')
+    client_lakeformation = boto3.client('lakeformation')
+    
+    logger.info("Clientes AWS inicializados correctamente")
+    
+except Exception as e:
+    logger.critical(f"Error crítico durante la inicialización: {str(e)}")
+    logger.critical(f"Traceback completo: {traceback.format_exc()}")
+    sys.exit(1)
+
+# Variables globales con logging
 dynamo_config_table = args['DYNAMO_CONFIG_TABLE']
 dynamo_endpoint_table = args['DYNAMO_ENDPOINT_TABLE']
 
-config_table_metadata = dynamodb.Table(dynamo_config_table)
-endpoint_table_metadata = dynamodb.Table(dynamo_endpoint_table)
+logger.info(f"Tabla de configuración DynamoDB: {dynamo_config_table}")
+logger.info(f"Tabla de endpoints DynamoDB: {dynamo_endpoint_table}")
+
+try:
+    config_table_metadata = dynamodb.Table(dynamo_config_table)
+    endpoint_table_metadata = dynamodb.Table(dynamo_endpoint_table)
+    logger.info("Conexiones a tablas DynamoDB establecidas")
+except Exception as e:
+    logger.error(f"Error conectando a tablas DynamoDB: {str(e)}")
+    raise CrawlerStageError(f"No se pudo conectar a las tablas DynamoDB: {str(e)}")
 
 s3_target = args['S3_STAGE_PREFIX']
 arn_role_crawler = args['ARN_ROLE_CRAWLER']
 job_name = args['JOB_NAME']
 endpoint_name = args['ENDPOINT']
-endpoint_data = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': endpoint_name})['Item']
+
+logger.info(f"Configuración establecida - Endpoint: {endpoint_name}, S3 Target: {s3_target}")
+
+# Obtener datos del endpoint con validación
+try:
+    logger.info(f"Obteniendo datos del endpoint: {endpoint_name}")
+    endpoint_response = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': endpoint_name})
+    
+    if 'Item' not in endpoint_response:
+        raise CrawlerStageError(f"Endpoint '{endpoint_name}' no encontrado en la tabla")
+    
+    endpoint_data = endpoint_response['Item']
+    logger.info(f"Datos del endpoint obtenidos exitosamente: {endpoint_data.get('BD_TYPE', 'N/A')}")
+    
+except Exception as e:
+    logger.error(f"Error obteniendo datos del endpoint: {str(e)}")
+    raise CrawlerStageError(f"No se pudieron obtener los datos del endpoint: {str(e)}")
 
 data_catalog_database_name = f"{args['TEAM']}_{args['DATA_SOURCE']}_{endpoint_name}_stage".lower()
-data_catalog_crawler_name = data_catalog_database_name+ "_crawler"
- 
-def create_database_data_catalog(database_data_catalog_name):
+data_catalog_crawler_name = data_catalog_database_name + "_crawler"
+
+logger.info(f"Nombres generados - Database: {data_catalog_database_name}, Crawler: {data_catalog_crawler_name}")
+
+@retry_on_failure()
+def create_database_data_catalog(database_data_catalog_name: str) -> bool:
+    """Crea una base de datos en el catálogo de datos de Glue"""
+    logger.info(f"Creando base de datos en catálogo: {database_data_catalog_name}")
+    
     try:
-        client_glue.create_database(
+        response = client_glue.create_database(
             DatabaseInput={
-                'Name': database_data_catalog_name}
+                'Name': database_data_catalog_name,
+                'Description': f'Database for {endpoint_name} stage data'
+            }
         )
-    except Exception as e:
-        logger.error(e)
-
-def get_database_data_catalog(database_data_catalog_name):
-    try:
-        client_glue.get_database(
-            Name=database_data_catalog_name
-        )
-        logger.info("Successfully get database")
+        logger.info(f"Base de datos '{database_data_catalog_name}' creada exitosamente")
         return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'AlreadyExistsException':
+            logger.warning(f"La base de datos '{database_data_catalog_name}' ya existe")
+            return True
+        else:
+            logger.error(f"Error de cliente AWS creando base de datos: {error_code} - {str(e)}")
+            raise
     except Exception as e:
-        logger.error(e)
+        logger.error(f"Error inesperado creando base de datos: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
+
+@retry_on_failure()
+def get_database_data_catalog(database_data_catalog_name: str) -> bool:
+    """Verifica si existe una base de datos en el catálogo"""
+    logger.info(f"Verificando existencia de base de datos: {database_data_catalog_name}")
+    
+    try:
+        response = client_glue.get_database(Name=database_data_catalog_name)
+        logger.info(f"Base de datos '{database_data_catalog_name}' encontrada")
+        logger.debug(f"Detalles de la base de datos: {response.get('Database', {}).get('Name', 'N/A')}")
+        return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'EntityNotFoundException':
+            logger.info(f"Base de datos '{database_data_catalog_name}' no existe")
+            return False
+        else:
+            logger.error(f"Error verificando base de datos: {error_code} - {str(e)}")
+            raise
+    except Exception as e:
+        logger.error(f"Error inesperado verificando base de datos: {str(e)}")
         return False
 
-def get_job_arn_role(job_name):
+@retry_on_failure()
+def get_job_arn_role(job_name: str) -> Optional[str]:
+    """Obtiene el ARN del rol asociado a un job de Glue"""
+    logger.info(f"Obteniendo ARN del rol para el job: {job_name}")
+    
     try:
-        return client_glue.get_job(
-            JobName=job_name
-        )['Job']['Role']
+        response = client_glue.get_job(JobName=job_name)
+        role_arn = response['Job']['Role']
+        logger.info(f"ARN del rol obtenido: {role_arn}")
+        return role_arn
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        logger.error(f"Error obteniendo job role: {error_code} - {str(e)}")
+        raise
     except Exception as e:
-        logger.error(e)
+        logger.error(f"Error inesperado obteniendo job role: {str(e)}")
+        raise
 
-def grant_permissions_to_database_lakeformation(job_role_arn_name, database_data_catalog_name):
-    client_lakeformation.grant_permissions(
-        Principal={
-            'DataLakePrincipalIdentifier': job_role_arn_name
-        },
-        Resource={
-            'Database': {
-                'Name': database_data_catalog_name
-            },
-        },
-        Permissions=[
-            'ALL',
-        ],
-        PermissionsWithGrantOption=[
-            'ALL',
-        ]
-    )
-
-def grant_permissions_lf_tag_lakeformation(job_role_arn_name):
-    """Once defined by the console in lakeformation the role in Data lake administrators and the LF tags
-        we proceed to assign the LF-tag permissions to the Role"""
-    client_lakeformation.grant_permissions(
-        Principal={
-            'DataLakePrincipalIdentifier': job_role_arn_name
-        },
-        Resource={
-            'LFTag': {
-                'TagKey': 'Level',
-                'TagValues': [
-                    'Stage',
-                ]
-            },
-        },
-        Permissions=[
-            'ASSOCIATE',
-        ],
-        PermissionsWithGrantOption=[
-            'ASSOCIATE',
-        ]
-    )
-
-def add_lf_tags_to_database_lakeformation(database_data_catalog_name):
-    """Once the role has the LF-tag, we assign the same LF-tag to the database resources"""
-    client_lakeformation.add_lf_tags_to_resource(
-        Resource={
-            'Database': {
-                'Name': database_data_catalog_name
-            },
-        },
-        LFTags=[
-            {
-                'TagKey': 'Level',
-                'TagValues': [
-                    'Stage',
-                ]
-            },
-        ]
-    )
-
-def create_crawler(total_list):
+@retry_on_failure()
+def grant_permissions_to_database_lakeformation(job_role_arn_name: str, database_data_catalog_name: str) -> None:
+    """Otorga permisos a la base de datos en Lake Formation"""
+    logger.info(f"Otorgando permisos de base de datos en Lake Formation")
+    logger.info(f"Principal: {job_role_arn_name}")
+    logger.info(f"Database: {database_data_catalog_name}")
+    
     try:
-        tables = []
-        for table in total_list:
-            
-            table_data = config_table_metadata.get_item(Key={'TARGET_TABLE_NAME': table})['Item']
-            endpoint_data = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': table_data['ENDPOINT']})['Item']
-            
-            if endpoint_data['BD_TYPE'] == 'mssql':
-                bd_type = 'sqlserver'
-            else:
-                bd_type = endpoint_data['BD_TYPE']
-                
-            data_source = {
-                'DeltaTables': [f"{s3_target}{args['PROJECT_NAME']}/{bd_type}/{table_data['ENDPOINT']}/{table_data['STAGE_TABLE_NAME']}/"],
-                'ConnectionName': '',
-                'CreateNativeDeltaTable': True
-            }
-            tables.append(data_source)
+        response = client_lakeformation.grant_permissions(
+            Principal={
+                'DataLakePrincipalIdentifier': job_role_arn_name
+            },
+            Resource={
+                'Database': {
+                    'Name': database_data_catalog_name
+                },
+            },
+            Permissions=['ALL'],
+            PermissionsWithGrantOption=['ALL']
+        )
+        logger.info("Permisos de base de datos otorgados exitosamente")
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'AlreadyExistsException':
+            logger.warning("Los permisos ya existen para esta base de datos")
+        else:
+            logger.error(f"Error otorgando permisos de base de datos: {error_code} - {str(e)}")
+            raise
+    except Exception as e:
+        logger.error(f"Error inesperado otorgando permisos de base de datos: {str(e)}")
+        raise
+    
+@retry_on_failure()
+def create_lf_tag_if_not_exists(tag_key: str, tag_values: List[str]) -> bool:
+    """Crea un LF-Tag si no existe"""
+    logger.info(f"Verificando/creando LF-Tag: {tag_key} con valores: {tag_values}")
+    
+    try:
+        # Verificar si el tag existe
+        response = client_lakeformation.get_lf_tag(TagKey=tag_key)
+        existing_values = response['TagValues']
+        logger.info(f"LF-Tag '{tag_key}' ya existe con valores: {existing_values}")
+        
+        # Verificar si necesitamos agregar nuevos valores
+        missing_values = [val for val in tag_values if val not in existing_values]
+        if missing_values:
+            logger.info(f"Actualizando LF-Tag con nuevos valores: {missing_values}")
+            all_values = list(set(existing_values + tag_values))
+            client_lakeformation.update_lf_tag(
+                TagKey=tag_key,
+                TagValuesToAdd=missing_values
+            )
+            logger.info(f"LF-Tag actualizado exitosamente")
+        
+        return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'EntityNotFoundException':
+            # El tag no existe, crearlo
+            logger.info(f"LF-Tag '{tag_key}' no existe, creándolo...")
+            try:
+                response = client_lakeformation.create_lf_tag(
+                    TagKey=tag_key,
+                    TagValues=tag_values
+                )
+                logger.info(f"LF-Tag '{tag_key}' creado exitosamente")
+                return True
+            except Exception as create_error:
+                logger.error(f"Error creando LF-Tag: {str(create_error)}")
+                raise
+        else:
+            logger.error(f"Error verificando LF-Tag: {error_code} - {str(e)}")
+            raise
+    except Exception as e:
+        logger.error(f"Error inesperado con LF-Tag: {str(e)}")
+        raise
 
-        client_glue.create_crawler(
+@retry_on_failure()
+def grant_permissions_lf_tag_lakeformation(job_role_arn_name: str) -> None:
+    """Otorga permisos de LF-Tag en Lake Formation"""
+    logger.info(f"Otorgando permisos de LF-Tag para el rol: {job_role_arn_name}")
+    
+    try:
+        response = client_lakeformation.grant_permissions(
+            Principal={
+                'DataLakePrincipalIdentifier': job_role_arn_name
+            },
+            Resource={
+                'LFTag': {
+                    'TagKey': 'Level',
+                    'TagValues': ['Stage']
+                },
+            },
+            Permissions=['ASSOCIATE'],
+            PermissionsWithGrantOption=['ASSOCIATE']
+        )
+        logger.info("Permisos de LF-Tag otorgados exitosamente")
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'AlreadyExistsException':
+            logger.warning("Los permisos de LF-Tag ya existen")
+        else:
+            logger.error(f"Error otorgando permisos de LF-Tag: {error_code} - {str(e)}")
+            raise
+    except Exception as e:
+        logger.error(f"Error inesperado otorgando permisos de LF-Tag: {str(e)}")
+        raise
+
+@retry_on_failure()
+def add_lf_tags_to_database_lakeformation(database_data_catalog_name: str) -> None:
+    """Agrega LF-Tags a la base de datos"""
+    logger.info(f"Agregando LF-Tags a la base de datos: {database_data_catalog_name}")
+    
+    try:
+        response = client_lakeformation.add_lf_tags_to_resource(
+            Resource={
+                'Database': {
+                    'Name': database_data_catalog_name
+                },
+            },
+            LFTags=[
+                {
+                    'TagKey': 'Level',
+                    'TagValues': ['Stage']
+                }
+            ]
+        )
+        logger.info("LF-Tags agregados exitosamente a la base de datos")
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        logger.error(f"Error agregando LF-Tags: {error_code} - {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Error inesperado agregando LF-Tags: {str(e)}")
+        raise
+
+def build_crawler_targets(total_list: List[str]) -> List[Dict[str, Any]]:
+    """Construye la lista de targets para el crawler"""
+    logger.info(f"Construyendo targets para {len(total_list)} tablas")
+    tables = []
+    
+    for table in total_list:
+        try:
+            logger.debug(f"Procesando tabla: {table}")
+            
+            # Obtener datos de la tabla
+            table_response = config_table_metadata.get_item(Key={'TARGET_TABLE_NAME': table})
+            if 'Item' not in table_response:
+                logger.warning(f"Tabla '{table}' no encontrada en configuración, saltando...")
+                continue
+                
+            table_data = table_response['Item']
+            
+            # Obtener datos del endpoint
+            endpoint_response = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': table_data['ENDPOINT']})
+            if 'Item' not in endpoint_response:
+                logger.warning(f"Endpoint '{table_data['ENDPOINT']}' no encontrado, saltando tabla '{table}'")
+                continue
+                
+            endpoint_data = endpoint_response['Item']
+            
+            # Construir ruta S3
+            s3_path = f"{s3_target}{args['TEAM']}/{args['DATA_SOURCE']}/{table_data['ENDPOINT']}/{table_data['STAGE_TABLE_NAME']}/"
+            
+            data_source = {
+                'DeltaTables': [s3_path],
+                'ConnectionName': '',
+                'WriteManifest': True
+            }
+            
+            tables.append(data_source)
+            logger.debug(f"Target agregado para tabla '{table}': {s3_path}")
+            
+        except Exception as e:
+            logger.error(f"Error procesando tabla '{table}': {str(e)}")
+            continue
+    
+    logger.info(f"Se construyeron {len(tables)} targets exitosamente")
+    return tables
+
+@retry_on_failure()
+def create_crawler(total_list: List[str]) -> bool:
+    """Crea un nuevo crawler en Glue"""
+    logger.info(f"Creando crawler: {data_catalog_crawler_name}")
+    
+    try:
+        tables = build_crawler_targets(total_list)
+        
+        if not tables:
+            logger.warning("No se encontraron tablas válidas para el crawler")
+            return False
+        
+        response = client_glue.create_crawler(
             Name=data_catalog_crawler_name,
             Role=arn_role_crawler,
             DatabaseName=data_catalog_database_name,
+            Description=f'Crawler for {endpoint_name} stage tables',
+            Targets={
+                'DeltaTargets': tables
+            },
+            Configuration=json.dumps({
+                "Version": 1.0,
+                "CrawlerOutput": {
+                    "Partitions": {"AddOrUpdateBehavior": "InheritFromTable"}
+                }
+            })
+        )
+        
+        logger.info(f"Crawler '{data_catalog_crawler_name}' creado exitosamente")
+        return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'AlreadyExistsException':
+            logger.warning(f"El crawler '{data_catalog_crawler_name}' ya existe")
+            return True
+        else:
+            logger.error(f"Error creando crawler: {error_code} - {str(e)}")
+            raise
+    except Exception as e:
+        logger.error(f"Error inesperado creando crawler: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise
+
+@retry_on_failure()
+def edit_crawler(total_list: List[str]) -> bool:
+    """Actualiza la configuración de un crawler existente"""
+    logger.info(f"Actualizando crawler: {data_catalog_crawler_name}")
+    
+    try:
+        tables = build_crawler_targets(total_list)
+        
+        if not tables:
+            logger.warning("No se encontraron tablas válidas para actualizar el crawler")
+            return False
+        
+        response = client_glue.update_crawler(
+            Name=data_catalog_crawler_name,
+            Role=arn_role_crawler,
+            DatabaseName=data_catalog_database_name,
+            Description=f'Updated crawler for {endpoint_name} stage tables',
             Targets={
                 'DeltaTargets': tables
             }
         )
-        logger.info("Successfully created crawler")
-    except Exception as e:
-        logger.error(e)
-
-def edit_crawler(total_list):
-    try:
-        tables = []
-        for table in total_list:
-            
-            table_data = config_table_metadata.get_item(Key={'TARGET_TABLE_NAME': table})['Item']
-            endpoint_data = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': table_data['ENDPOINT']})['Item']
-            
-            if endpoint_data['BD_TYPE'] == 'mssql':
-                bd_type = 'sqlserver'
-            else:
-                bd_type = endpoint_data['BD_TYPE']
-                
-            data_source = {
-                'DeltaTables': [f"{s3_target}{args['PROJECT_NAME']}/{bd_type}/{table_data['ENDPOINT']}/{table_data['STAGE_TABLE_NAME']}/"],
-                'ConnectionName': '',
-                'CreateNativeDeltaTable': True
-            }
-            tables.append(data_source)
-
-        client_glue.update_crawler(
-            Name=data_catalog_crawler_name,
-            Role=arn_role_crawler,
-            DatabaseName=data_catalog_database_name,
-            Targets={
-                'DeltaTargets': tables
-            }
-        )
-        logger.info("Successfully created crawler")
-    except Exception as e:
-        logger.error(e)
-
-def get_crawler(crawler_name):
-    try:
-        client_glue.get_crawler(
-            Name=crawler_name
-        )
-        logger.info("Successfully get crawler")
+        
+        logger.info(f"Crawler '{data_catalog_crawler_name}' actualizado exitosamente")
         return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        logger.error(f"Error actualizando crawler: {error_code} - {str(e)}")
+        raise
     except Exception as e:
-        logger.error(e)
+        logger.error(f"Error inesperado actualizando crawler: {str(e)}")
+        raise
+
+@retry_on_failure()
+def get_crawler(crawler_name: str) -> bool:
+    """Verifica si existe un crawler"""
+    logger.info(f"Verificando existencia del crawler: {crawler_name}")
+    
+    try:
+        response = client_glue.get_crawler(Name=crawler_name)
+        crawler_state = response['Crawler']['State']
+        logger.info(f"Crawler '{crawler_name}' encontrado, estado: {crawler_state}")
+        return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'EntityNotFoundException':
+            logger.info(f"Crawler '{crawler_name}' no existe")
+            return False
+        else:
+            logger.error(f"Error verificando crawler: {error_code} - {str(e)}")
+            raise
+    except Exception as e:
+        logger.error(f"Error inesperado verificando crawler: {str(e)}")
         return False
 
-def start_crawler(crawler_name):
+@retry_on_failure()
+def start_crawler(crawler_name: str) -> bool:
+    """Inicia la ejecución de un crawler"""
+    logger.info(f"Iniciando crawler: {crawler_name}")
+    
     try:
-        client_glue.start_crawler(
-            Name=crawler_name
-        )
-        logger.info("Successfully started crawler")
+        # Verificar estado actual del crawler
+        response = client_glue.get_crawler(Name=crawler_name)
+        current_state = response['Crawler']['State']
+        
+        if current_state == 'RUNNING':
+            logger.info(f"El crawler '{crawler_name}' ya está ejecutándose")
+            return True
+        elif current_state in ['STOPPING', 'READY']:
+            logger.info(f"Estado del crawler: {current_state}, procediendo a iniciar...")
+        else:
+            logger.warning(f"Estado inesperado del crawler: {current_state}")
+        
+        # Iniciar crawler
+        start_response = client_glue.start_crawler(Name=crawler_name)
+        logger.info(f"Crawler '{crawler_name}' iniciado exitosamente")
+        return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        if error_code == 'CrawlerRunningException':
+            logger.info(f"El crawler '{crawler_name}' ya está ejecutándose")
+            return True
+        else:
+            logger.error(f"Error iniciando crawler: {error_code} - {str(e)}")
+            raise
     except Exception as e:
-        logger.error(e)
+        logger.error(f"Error inesperado iniciando crawler: {str(e)}")
+        raise
 
-def update_attribute_value_dynamodb(row_key_field_name, row_key, attribute_name, attribute_value, table_name):
-    logger.info('update dynamoDb Metadata : {} ,{},{},{},{}'.format(row_key_field_name, row_key, attribute_name, attribute_value, table_name))
-    dynamo_table = dynamodb.Table(table_name)
-    response = dynamo_table.update_item(
-        Key={row_key_field_name: row_key},
-        AttributeUpdates={
-            attribute_name: {
-                'Value': attribute_value,
-                'Action': 'PUT'
-            }
-        }
-    )
+@retry_on_failure()
+def update_attribute_value_dynamodb(row_key_field_name: str, row_key: str, 
+                                   attribute_name: str, attribute_value: Any, 
+                                   table_name: str) -> bool:
+    """Actualiza un atributo en DynamoDB"""
+    logger.info(f'Actualizando DynamoDB - Tabla: {table_name}, Key: {row_key}, Atributo: {attribute_name}')
+    
+    try:
+        dynamo_table = dynamodb.Table(table_name)
+        response = dynamo_table.update_item(
+            Key={row_key_field_name: row_key},
+            AttributeUpdates={
+                attribute_name: {
+                    'Value': attribute_value,
+                    'Action': 'PUT'
+                }
+            },
+            ReturnValues='UPDATED_NEW'
+        )
+        
+        logger.info(f'Atributo actualizado exitosamente en DynamoDB: {row_key}')
+        logger.debug(f'Respuesta de DynamoDB: {response.get("Attributes", {})}')
+        return True
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        logger.error(f"Error de cliente DynamoDB: {error_code} - {str(e)}")
+        raise
+    except Exception as e:
+        logger.error(f"Error inesperado actualizando DynamoDB: {str(e)}")
+        raise
 
-def get_dynamo_crawler_status_for_endpoint(endpoint_name):
+def get_dynamo_crawler_status_for_endpoint(endpoint_name: str) -> Tuple[List[str], List[str]]:
+    """Obtiene el estado del crawler para las tablas de un endpoint"""
+    logger.info(f"Obteniendo estado del crawler para endpoint: {endpoint_name}")
+    
     total_list = []
     empty_table = []
-    for stage_output in config_table_metadata.scan()['Items']:
-        try:
-            if 'ENDPOINT' in stage_output.keys() and stage_output['ENDPOINT'] == endpoint_name:
-                if not 'CRAWLER' in stage_output.keys() or not stage_output['CRAWLER']:
-                    empty_table.append(stage_output['TARGET_TABLE_NAME'])
-                total_list.append(stage_output['TARGET_TABLE_NAME'])
+    processed_count = 0
+    error_count = 0
+    
+    try:
+        # Escanear la tabla de configuración
+        logger.info("Escaneando tabla de configuración...")
+        response = config_table_metadata.scan()
+        items = response.get('Items', [])
+        logger.info(f"Se encontraron {len(items)} elementos en la tabla de configuración")
+        
+        for stage_output in items:
+            try:
+                processed_count += 1
+                
+                # Validar que el elemento tenga la estructura esperada
+                if 'ENDPOINT' not in stage_output:
+                    logger.debug(f"Elemento sin ENDPOINT encontrado, saltando...")
+                    continue
+                
+                if stage_output['ENDPOINT'] == endpoint_name:
+                    table_name = stage_output.get('TARGET_TABLE_NAME')
+                    if not table_name:
+                        logger.warning("Elemento sin TARGET_TABLE_NAME encontrado")
+                        continue
+                    
+                    # Verificar estado del crawler
+                    has_crawler = stage_output.get('CRAWLER', False)
+                    
+                    if not has_crawler:
+                        logger.info(f"Tabla '{table_name}' necesita ser agregada al crawler")
+                        empty_table.append(table_name)
+                    
+                    total_list.append(table_name)
+                    logger.debug(f"Tabla procesada: {table_name}, tiene crawler: {has_crawler}")
 
-        except Exception as e:
-            logger.error(f"problems with table {stage_output['TARGET_TABLE_NAME']}")
-            logger.error(e)
+            except Exception as e:
+                error_count += 1
+                table_name = stage_output.get('TARGET_TABLE_NAME', 'UNKNOWN')
+                logger.error(f"Error procesando tabla '{table_name}': {str(e)}")
+                continue
 
-    for table in empty_table:
-        update_attribute_value_dynamodb('TARGET_TABLE_NAME', table, 'CRAWLER', True, dynamo_config_table)
-        logger.info(f"added to the crawler {table}")
+        logger.info(f"Procesamiento completado - Total: {len(total_list)}, Sin crawler: {len(empty_table)}, Errores: {error_count}")
+        
+        # Actualizar tablas que necesitan crawler
+        updated_count = 0
+        for table in empty_table:
+            try:
+                if update_attribute_value_dynamodb('TARGET_TABLE_NAME', table, 'CRAWLER', True, dynamo_config_table):
+                    updated_count += 1
+                    logger.info(f"Tabla '{table}' marcada como agregada al crawler")
+            except Exception as e:
+                logger.error(f"Error actualizando estado de crawler para tabla '{table}': {str(e)}")
+        
+        logger.info(f"Se actualizaron {updated_count} de {len(empty_table)} tablas en DynamoDB")
+        
+        return total_list, empty_table
 
-    return total_list, empty_table
+    except Exception as e:
+        logger.error(f"Error crítico obteniendo estado del crawler: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise CrawlerStageError(f"No se pudo obtener el estado del crawler: {str(e)}")
 
-try:    
-    total_list, empty_table = get_dynamo_crawler_status_for_endpoint(endpoint_name)
-    if get_crawler(data_catalog_crawler_name):
-        if len(empty_table) > 0:
-            edit_crawler(total_list)
-        logger.info("There is a crawler created")
-        start_crawler(data_catalog_crawler_name)
-    else:
-        logger.info("We proceed to check if there is a data crawler database")
-        if get_database_data_catalog(data_catalog_database_name):
-            logger.info("the crawler does not exist, we proceed to its creation")
-            create_crawler(total_list)
-            logger.info("We proceed to start the crawler")
-            start_crawler(data_catalog_crawler_name)
-        else:
-            logger.info("Proceed to obtain the job role name")
-            job_role_arn_name = args['ARN_ROLE_CRAWLER'] #get_job_arn_role(job_name)
-            logger.info("We proceed to assign LF-Tag permissions")
-            
-            grant_permissions_lf_tag_lakeformation(job_role_arn_name)
-            # grant_permissions_lf_tag_lakeformation(arn_role_crawler)
-            logger.info("There is no database, proceed to create the data catalog database")
-            create_database_data_catalog(data_catalog_database_name)
-            logger.info("We proceed to add the necessary permissions in lakeformation on the data catalog database")
-            add_lf_tags_to_database_lakeformation(data_catalog_database_name)
-            grant_permissions_to_database_lakeformation(job_role_arn_name, data_catalog_database_name)
-            logger.info("the crawler does not exist, we proceed to its creation")
-            create_crawler(total_list)
-            logger.info("We proceed to start the crawler")
-            start_crawler(data_catalog_crawler_name)
-            
-except Exception as e:
-    logger.error("error while creating crawler")
-    logger.error(e)
+# Función principal con manejo robusto de errores
+def main():
+   """Función principal del proceso"""
+   start_time = time.time()
+   logger.info("="*60)
+   logger.info("INICIANDO PROCESO CRAWLER STAGE")
+   logger.info("="*60)
+   
+   try:
+       # Obtener estado de las tablas
+       logger.info("Paso 1: Obteniendo estado de las tablas...")
+       total_list, empty_table = get_dynamo_crawler_status_for_endpoint(endpoint_name)
+       
+       if not total_list:
+           logger.warning(f"No se encontraron tablas para el endpoint '{endpoint_name}'")
+           logger.info("Proceso finalizado - No hay tablas para procesar")
+           return
+       
+       logger.info(f"Tablas encontradas: {len(total_list)}, Nuevas tablas: {len(empty_table)}")
+       
+       # Verificar si el crawler existe
+       logger.info("Paso 2: Verificando existencia del crawler...")
+       crawler_exists = get_crawler(data_catalog_crawler_name)
+       
+       if crawler_exists:
+           logger.info("El crawler ya existe")
+           
+           # Si hay nuevas tablas, actualizar el crawler
+           if len(empty_table) > 0:
+               logger.info(f"Actualizando crawler con {len(empty_table)} nuevas tablas...")
+               if edit_crawler(total_list):
+                   logger.info("Crawler actualizado exitosamente")
+               else:
+                   logger.error("Error actualizando el crawler")
+                   return
+           
+           logger.info("Paso 3: Iniciando crawler existente...")
+           if start_crawler(data_catalog_crawler_name):
+               logger.info("Crawler iniciado exitosamente")
+           else:
+               logger.error("Error iniciando el crawler")
+               return
+               
+       else:
+           logger.info("El crawler no existe, procediendo a crearlo...")
+           
+           # Verificar si existe la base de datos
+           logger.info("Paso 3: Verificando base de datos del catálogo...")
+           database_exists = get_database_data_catalog(data_catalog_database_name)
+           
+           if database_exists:
+               logger.info("La base de datos ya existe")
+               
+               # Crear el crawler
+               logger.info("Paso 4: Creando nuevo crawler...")
+               if create_crawler(total_list):
+                   logger.info("Crawler creado exitosamente")
+                   
+                   logger.info("Paso 5: Iniciando nuevo crawler...")
+                   if start_crawler(data_catalog_crawler_name):
+                       logger.info("Crawler iniciado exitosamente")
+                   else:
+                       logger.error("Error iniciando el nuevo crawler")
+                       return
+               else:
+                   logger.error("Error creando el crawler")
+                   return
+                   
+           else:
+               logger.info("La base de datos no existe, creando infraestructura completa...")
+               
+               # Configurar permisos y crear base de datos
+               job_role_arn_name = arn_role_crawler
+               logger.info(f"Usando ARN del rol: {job_role_arn_name}")
+               
+               # AGREGAR ESTO ANTES de otorgar permisos:
+               logger.info("Paso 3.5: Creando/verificando LF-Tag...")
+               try:
+                   create_lf_tag_if_not_exists('Level', ['Stage'])
+               except Exception as e:
+                   logger.warning(f"Error creando LF-Tag (continuando): {str(e)}")
+               
+               logger.info("Paso 4: Otorgando permisos de LF-Tag...")
+               try:
+                   grant_permissions_lf_tag_lakeformation(job_role_arn_name)
+               except Exception as e:
+                   logger.warning(f"Error otorgando permisos LF-Tag (continuando): {str(e)}")
+               
+               logger.info("Paso 5: Creando base de datos del catálogo...")
+               if create_database_data_catalog(data_catalog_database_name):
+                   logger.info("Base de datos creada exitosamente")
+               else:
+                   logger.error("Error creando la base de datos")
+                   return
+               
+               logger.info("Paso 6: Agregando LF-Tags a la base de datos...")
+               try:
+                   add_lf_tags_to_database_lakeformation(data_catalog_database_name)
+               except Exception as e:
+                   logger.warning(f"Error agregando LF-Tags (continuando): {str(e)}")
+               
+               logger.info("Paso 7: Otorgando permisos de base de datos...")
+               try:
+                   grant_permissions_to_database_lakeformation(job_role_arn_name, data_catalog_database_name)
+               except Exception as e:
+                   logger.warning(f"Error otorgando permisos de base de datos (continuando): {str(e)}")
+               
+               logger.info("Paso 8: Creando crawler...")
+               if create_crawler(total_list):
+                   logger.info("Crawler creado exitosamente")
+                   
+                   logger.info("Paso 9: Iniciando crawler...")
+                   if start_crawler(data_catalog_crawler_name):
+                       logger.info("Crawler iniciado exitosamente")
+                   else:
+                       logger.error("Error iniciando el crawler")
+                       return
+               else:
+                   logger.error("Error creando el crawler")
+                   return
+       
+       # Calcular tiempo de ejecución
+       execution_time = time.time() - start_time
+       logger.info("="*60)
+       logger.info("PROCESO COMPLETADO EXITOSAMENTE")
+       logger.info(f"Tiempo de ejecución: {execution_time:.2f} segundos")
+       logger.info(f"Crawler: {data_catalog_crawler_name}")
+       logger.info(f"Base de datos: {data_catalog_database_name}")
+       logger.info(f"Tablas procesadas: {len(total_list)}")
+       logger.info(f"Nuevas tablas agregadas: {len(empty_table)}")
+       logger.info("="*60)
+       
+   except CrawlerStageError as e:
+       logger.error(f"Error específico del CrawlerStage: {str(e)}")
+       logger.error("El proceso se detuvo debido a un error controlado")
+       sys.exit(1)
+       
+   except ClientError as e:
+       error_code = e.response['Error']['Code']
+       error_message = e.response['Error']['Message']
+       logger.error(f"Error de cliente AWS: {error_code} - {error_message}")
+       logger.error("El proceso se detuvo debido a un error de AWS")
+       sys.exit(1)
+       
+   except Exception as e:
+       execution_time = time.time() - start_time
+       logger.critical(f"Error crítico no manejado: {str(e)}")
+       logger.critical(f"Traceback completo: {traceback.format_exc()}")
+       logger.critical(f"Tiempo transcurrido antes del error: {execution_time:.2f} segundos")
+       logger.critical("="*60)
+       logger.critical("PROCESO TERMINADO CON ERROR CRÍTICO")
+       logger.critical("="*60)
+       sys.exit(1)
+
+def health_check() -> bool:
+   """Realiza verificaciones de salud del sistema antes de ejecutar el proceso principal"""
+   logger.info("Ejecutando verificaciones de salud...")
+   
+   health_checks = []
+   
+   try:
+       # 1. Verificar conectividad de Glue
+       logger.debug("Verificando conectividad con AWS Glue...")
+       try:
+           # CORREGIDO: Usar get_databases en lugar de list_databases
+           glue_response = client_glue.get_databases(MaxResults=1)
+           health_checks.append(("AWS Glue", True, "Conectividad OK"))
+           logger.debug("✅ AWS Glue - Conectividad verificada")
+       except Exception as e:
+           health_checks.append(("AWS Glue", False, f"Error: {str(e)}"))
+           logger.error(f"❌ AWS Glue - Error de conectividad: {str(e)}")
+       
+       # 2. Verificar conectividad de Lake Formation (CORREGIDO)
+       logger.debug("Verificando conectividad con AWS Lake Formation...")
+       try:
+           # En lugar de hacer una llamada específica, verificamos que el cliente se inicialice correctamente
+           # y que tengamos permisos básicos
+           lf_response = client_lakeformation.list_permissions(MaxResults=1)
+           health_checks.append(("AWS Lake Formation", True, "Conectividad OK"))
+           logger.debug("✅ AWS Lake Formation - Conectividad verificada")
+       except ClientError as e:
+           error_code = e.response['Error']['Code']
+           # Algunos errores son esperados dependiendo de los permisos
+           if error_code in ['AccessDeniedException']:
+               health_checks.append(("AWS Lake Formation", True, "Cliente inicializado (permisos limitados)"))
+               logger.debug("✅ AWS Lake Formation - Cliente funcional con permisos limitados")
+           else:
+               health_checks.append(("AWS Lake Formation", False, f"Error: {error_code}"))
+               logger.error(f"❌ AWS Lake Formation - Error: {error_code}")
+       except Exception as e:
+           health_checks.append(("AWS Lake Formation", False, f"Error: {str(e)}"))
+           logger.error(f"❌ AWS Lake Formation - Error de conectividad: {str(e)}")
+       
+       # 3. Verificar acceso a tablas DynamoDB (CORREGIDO)
+       logger.debug("Verificando acceso a tablas DynamoDB...")
+       try:
+           # CORREGIDO: Usar el cliente DynamoDB para describe_table, no el resource
+           config_response = dynamodb_client.describe_table(TableName=dynamo_config_table)
+           table_status = config_response['Table']['TableStatus']
+           if table_status == 'ACTIVE':
+               health_checks.append(("DynamoDB Config Table", True, f"Estado: {table_status}"))
+               logger.debug(f"✅ Tabla de configuración DynamoDB - Estado: {table_status}")
+           else:
+               health_checks.append(("DynamoDB Config Table", False, f"Estado no activo: {table_status}"))
+               logger.warning(f"⚠️ Tabla de configuración DynamoDB - Estado: {table_status}")
+       except Exception as e:
+           health_checks.append(("DynamoDB Config Table", False, f"Error: {str(e)}"))
+           logger.error(f"❌ Tabla de configuración DynamoDB - Error: {str(e)}")
+       
+       try:
+           # CORREGIDO: Usar el cliente DynamoDB para describe_table, no el resource
+           endpoint_response = dynamodb_client.describe_table(TableName=dynamo_endpoint_table)
+           table_status = endpoint_response['Table']['TableStatus']
+           if table_status == 'ACTIVE':
+               health_checks.append(("DynamoDB Endpoint Table", True, f"Estado: {table_status}"))
+               logger.debug(f"✅ Tabla de endpoints DynamoDB - Estado: {table_status}")
+           else:
+               health_checks.append(("DynamoDB Endpoint Table", False, f"Estado no activo: {table_status}"))
+               logger.warning(f"⚠️ Tabla de endpoints DynamoDB - Estado: {table_status}")
+       except Exception as e:
+           health_checks.append(("DynamoDB Endpoint Table", False, f"Error: {str(e)}"))
+           logger.error(f"❌ Tabla de endpoints DynamoDB - Error: {str(e)}")
+       
+       # 4. Verificar permisos del rol
+       logger.debug("Verificando permisos del rol...")
+       try:
+           # Test básico de permisos intentando describir el rol
+           sts_client = boto3.client('sts')
+           identity = sts_client.get_caller_identity()
+           health_checks.append(("IAM Permissions", True, f"Principal: {identity.get('Arn', 'Unknown')}"))
+           logger.debug(f"✅ Permisos IAM - Principal verificado: {identity.get('Arn', 'Unknown')}")
+       except Exception as e:
+           health_checks.append(("IAM Permissions", False, f"Error: {str(e)}"))
+           logger.error(f"❌ Permisos IAM - Error: {str(e)}")
+       
+       # 5. Verificar acceso a S3
+       logger.debug("Verificando acceso a S3...")
+       try:
+           s3_client = boto3.client('s3')
+           # Extraer bucket name del S3 target
+           bucket_name = s3_target.replace('s3://', '').split('/')[0]
+           s3_response = s3_client.head_bucket(Bucket=bucket_name)
+           health_checks.append(("S3 Access", True, f"Bucket accesible: {bucket_name}"))
+           logger.debug(f"✅ S3 - Bucket accesible: {bucket_name}")
+       except Exception as e:
+           health_checks.append(("S3 Access", False, f"Error: {str(e)}"))
+           logger.error(f"❌ S3 - Error de acceso: {str(e)}")
+       
+       # 6. Verificar conectividad básica de endpoint de datos (opcional pero útil)
+       logger.debug("Verificando datos del endpoint...")
+       try:
+           # Verificar que podemos leer los datos del endpoint
+           endpoint_response = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': endpoint_name})
+           if 'Item' in endpoint_response:
+               health_checks.append(("Endpoint Data", True, f"Endpoint '{endpoint_name}' encontrado"))
+               logger.debug(f"✅ Datos del endpoint - Endpoint '{endpoint_name}' accesible")
+           else:
+               health_checks.append(("Endpoint Data", False, f"Endpoint '{endpoint_name}' no encontrado"))
+               logger.error(f"❌ Datos del endpoint - Endpoint '{endpoint_name}' no encontrado")
+       except Exception as e:
+           health_checks.append(("Endpoint Data", False, f"Error: {str(e)}"))
+           logger.error(f"❌ Datos del endpoint - Error: {str(e)}")
+       
+       # Resumen de verificaciones de salud
+       logger.info("Resumen de verificaciones de salud:")
+       logger.info("-" * 60)
+       
+       failed_checks = 0
+       critical_failures = 0
+       
+       for service, status, message in health_checks:
+           status_symbol = "✅" if status else "❌"
+           logger.info(f"{status_symbol} {service:<25} - {message}")
+           if not status:
+               failed_checks += 1
+               # Marcar fallas críticas que impedirían la ejecución
+               if service in ["AWS Glue", "DynamoDB Config Table", "DynamoDB Endpoint Table", "Endpoint Data"]:
+                   critical_failures += 1
+       
+       logger.info("-" * 60)
+       
+       if failed_checks == 0:
+           logger.info("🎉 Todas las verificaciones de salud pasaron exitosamente")
+           return True
+       elif critical_failures == 0:
+           logger.warning(f"⚠️ {failed_checks} verificaciones fallaron, pero ninguna es crítica")
+           logger.warning("Continuando con el proceso...")
+           return True
+       else:
+           logger.error(f"🚨 {critical_failures} verificaciones críticas fallaron de {failed_checks} totales")
+           logger.error("No se puede continuar con el proceso")
+           return False
+           
+   except Exception as e:
+       logger.error(f"Error durante las verificaciones de salud: {str(e)}")
+       logger.error(f"Traceback: {traceback.format_exc()}")
+       return False
+
+# Función de monitoreo del progreso del crawler
+@retry_on_failure()
+def monitor_crawler_progress(crawler_name: str, timeout_minutes: int = 30) -> bool:
+   """Monitorea el progreso del crawler hasta su finalización"""
+   logger.info(f"Iniciando monitoreo del crawler: {crawler_name}")
+   logger.info(f"Timeout configurado: {timeout_minutes} minutos")
+   
+   start_time = time.time()
+   timeout_seconds = timeout_minutes * 60
+   check_interval = 30  # Verificar cada 30 segundos
+   
+   try:
+       while True:
+           elapsed_time = time.time() - start_time
+           
+           # Verificar timeout
+           if elapsed_time > timeout_seconds:
+               logger.warning(f"Timeout alcanzado ({timeout_minutes} minutos) - Deteniendo monitoreo")
+               return False
+           
+           # Obtener estado del crawler
+           response = client_glue.get_crawler(Name=crawler_name)
+           crawler_state = response['Crawler']['State']
+           
+           # Log del estado actual
+           minutes_elapsed = elapsed_time / 60
+           logger.info(f"Estado del crawler [{minutes_elapsed:.1f}min]: {crawler_state}")
+           
+           # Verificar estados finales
+           if crawler_state == 'READY':
+               # Obtener estadísticas de la última ejecución
+               last_crawl = response['Crawler'].get('LastCrawl', {})
+               if last_crawl:
+                   status = last_crawl.get('Status', 'UNKNOWN')
+                   tables_created = last_crawl.get('TablesCreated', 0)
+                   tables_updated = last_crawl.get('TablesUpdated', 0)
+                   tables_deleted = last_crawl.get('TablesDeleted', 0)
+                   
+                   logger.info(f"Crawler completado exitosamente:")
+                   logger.info(f"  - Estado final: {status}")
+                   logger.info(f"  - Tablas creadas: {tables_created}")
+                   logger.info(f"  - Tablas actualizadas: {tables_updated}")
+                   logger.info(f"  - Tablas eliminadas: {tables_deleted}")
+                   logger.info(f"  - Tiempo total: {minutes_elapsed:.1f} minutos")
+               
+               return True
+               
+           elif crawler_state in ['STOPPING', 'STOPPED']:
+               logger.warning(f"Crawler detenido inesperadamente - Estado: {crawler_state}")
+               
+               # Intentar obtener información del error si está disponible
+               last_crawl = response['Crawler'].get('LastCrawl', {})
+               if last_crawl and 'ErrorMessage' in last_crawl:
+                   logger.error(f"Error del crawler: {last_crawl['ErrorMessage']}")
+               
+               return False
+               
+           elif crawler_state == 'RUNNING':
+               # Obtener progreso si está disponible
+               last_crawl = response['Crawler'].get('LastCrawl', {})
+               if last_crawl and 'TablesCreated' in last_crawl:
+                   logger.debug(f"Progreso: {last_crawl.get('TablesCreated', 0)} tablas procesadas")
+           
+           # Esperar antes de la siguiente verificación
+           time.sleep(check_interval)
+           
+   except ClientError as e:
+       error_code = e.response['Error']['Code']
+       logger.error(f"Error monitoreando crawler: {error_code} - {str(e)}")
+       raise
+   except Exception as e:
+       logger.error(f"Error inesperado monitoreando crawler: {str(e)}")
+       raise
+
+# Función para limpiar recursos en caso de error
+def cleanup_on_error(crawler_name: str, database_name: str):
+   """Limpia recursos parcialmente creados en caso de error"""
+   logger.info("Iniciando limpieza de recursos debido a error...")
+   
+   try:
+       # Intentar detener el crawler si está corriendo
+       try:
+           crawler_response = client_glue.get_crawler(Name=crawler_name)
+           if crawler_response['Crawler']['State'] == 'RUNNING':
+               logger.info(f"Deteniendo crawler en ejecución: {crawler_name}")
+               client_glue.stop_crawler(Name=crawler_name)
+               
+               # Esperar a que se detenga
+               max_wait = 60  # 1 minuto
+               wait_time = 0
+               while wait_time < max_wait:
+                   time.sleep(5)
+                   wait_time += 5
+                   state_response = client_glue.get_crawler(Name=crawler_name)
+                   if state_response['Crawler']['State'] != 'RUNNING':
+                       logger.info("Crawler detenido exitosamente")
+                       break
+       except ClientError as e:
+           if e.response['Error']['Code'] != 'EntityNotFoundException':
+               logger.warning(f"Error deteniendo crawler: {str(e)}")
+       
+       logger.info("Limpieza completada")
+       
+   except Exception as e:
+       logger.error(f"Error durante la limpieza: {str(e)}")
+
+# Punto de entrada principal
+if __name__ == "__main__":
+   try:
+       # Ejecutar verificaciones de salud primero
+       logger.info("Iniciando verificaciones de salud del sistema...")
+       if not health_check():
+           logger.error("Las verificaciones de salud fallaron, abortando proceso")
+           sys.exit(1)
+       
+       # Ejecutar proceso principal
+       main()
+       
+   except KeyboardInterrupt:
+       logger.warning("Proceso interrumpido por el usuario")
+       cleanup_on_error(data_catalog_crawler_name, data_catalog_database_name)
+       sys.exit(1)
+   except Exception as e:
+       logger.critical(f"Error crítico no capturado: {str(e)}")
+       logger.critical(f"Traceback: {traceback.format_exc()}")
+       cleanup_on_error(data_catalog_crawler_name, data_catalog_database_name)
+       sys.exit(1)

@@ -22,12 +22,12 @@ from pyspark.sql.types import StringType, IntegerType
 from pyspark.sql.session import SparkSession
 from pyspark.sql.types import *
 
+logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
+logger = logging.getLogger("LightTransform")
+logger.setLevel(os.environ.get("LOGGING", logging.INFO))
+
 args = getResolvedOptions(
     sys.argv, ['JOB_NAME', 'S3_RAW_PREFIX', 'S3_STAGE_PREFIX', 'DYNAMO_CONFIG_TABLE', 'DYNAMO_ENDPOINT_TABLE', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'ARN_TOPIC_FAILED','DYNAMO_STAGE_COLUMNS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE'])
-
-# Configuración del logger
-logger = logging.getLogger()
-logger.setLevel(logging.INFO)
 
 TZ_LIMA = pytz.timezone('America/Lima')
 YEARS_LIMA = dt.datetime.now(TZ_LIMA).strftime('%Y')
@@ -359,7 +359,7 @@ def condition_generator(id_columns):
     return string[:-4]
 
 try:
-    DAYS_LIMA = '15'
+    #DAYS_LIMA = '15'
     s3_raw_path = s3_source + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + table_data['ENDPOINT'] + "/" + table_data['SOURCE_TABLE'].split()[0] + "/year=" + YEARS_LIMA + "/month=" + MONTHS_LIMA + "/day=" + DAYS_LIMA + "/"
     s3_stage_path = s3_target + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + table_data['ENDPOINT'] + "/" + table_data['STAGE_TABLE_NAME'] + "/"
     try:

@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 import os
 import aws_cdk as cdk
-from stacks.cdk_datalake_ingest_bigmagic_stack import CdkDatalakeIngestBigMagicStack
+from stacks.cdk_datalake_ingest_apdayc_stack import CdkDatalakeIngestApdaycStack
 from aje_cdk_libs.constants.environments import Environments
 from aje_cdk_libs.constants.project_config import ProjectConfig
 from dotenv import load_dotenv
@@ -16,9 +16,9 @@ CONFIG["environment"] = os.getenv("ENVIRONMENT", None)
 CONFIG["separator"] = os.getenv("SEPARATOR", "-") 
 project_config = ProjectConfig.from_dict(CONFIG)
       
-CdkDatalakeIngestBigMagicStack(
+CdkDatalakeIngestApdaycStack(
     app, 
-    "CdkDatalakeIngestBigMagicStack",
+    "CdkDatalakeIngestApdaycStack",
     project_config,
     env=cdk.Environment(
         account=project_config.account_id,

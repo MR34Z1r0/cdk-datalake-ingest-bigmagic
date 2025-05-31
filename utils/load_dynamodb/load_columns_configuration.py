@@ -1,6 +1,7 @@
 import boto3
 import csv
 import os
+import argparse
 #from dotenv import load_dotenv
 
 #load_dotenv()
@@ -20,7 +21,16 @@ dynamodb = boto3.resource('dynamodb', region_name=region_name)  # Cambia a tu re
 table_name = 'sofia-dev-datalake-columns-specifications-ddb' #produccion
 table = dynamodb.Table(table_name)
 
-endpoints = ['PEBDDATA2'] #produccion
+parser = argparse.ArgumentParser(description='Extract data from source and load to S3')
+parser.add_argument("-t", '--TEAM', required=True, help='Team name')
+parser.add_argument("-d", '--DATASOURCE', required=True, help='Data source name')
+parser.add_argument("-e", '--ENDPOINTS', help='List of endpoints to process, separate for ","')
+parser.add_argument("-i", '--INSTANCE', help='Instance name', default='PE')  # Default to 'PE'
+args = parser.parse_args()
+
+team = args.TEAM  # Team name
+datasource = args.DATASOURCE  # Data source
+endpoints = args.ENDPOINTS.split(',') #produccion
 
 def convertir_a_booleano(valor):
     if valor == 'T':
@@ -40,7 +50,7 @@ def convertir_a_booleano(valor):
 
 def subir_csv_a_dynamo(archivo_csv):
     with open(archivo_csv, 'r') as archivo:
-        reader = csv.DictReader(archivo)  # Lee el CSV como diccionario
+        reader = csv.DictReader(archivo, delimiter=';')  # Lee el CSV como diccionario
         for fila in reader:
             for endpoint in endpoints:
                 try:
@@ -61,14 +71,17 @@ def subir_csv_a_dynamo(archivo_csv):
                     fila['IS_PARTITION'] = convertir_a_booleano(fila['IS_PARTITION'])
                     fila['IS_FILTER_DATE'] = convertir_a_booleano(fila['IS_FILTER_DATE'])
                     fila['COLUMN_ID'] = int(fila['COLUMN_ID'])
-
+                    fila['TEAM'] = team
+                    fila['DATA_SOURCE'] = datasource
+                    fila['ENDPOINT_NAME'] = endpoint
+                    fila['INSTANCE'] = args.INSTANCE.upper()  # Add country from argument
 
                     response = table.put_item(Item=fila)
                     #print(f"Elemento subido: {fila}")
                 except Exception as e:
                     print(f"Error subiendo {fila}: {e}")
 
-subir_csv_a_dynamo('datalake_columns_bigmagic.csv') #add new columns
+subir_csv_a_dynamo(f'datalake_columns_{team}_{datasource}.csv') #add new columns
 
 
 

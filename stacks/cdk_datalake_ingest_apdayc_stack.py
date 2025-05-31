@@ -27,7 +27,7 @@ from dotenv import load_dotenv
 import urllib.parse
 from aje_cdk_libs.constants.project_config import ProjectConfig
 
-class CdkDatalakeIngestBigMagicStack(Stack):
+class CdkDatalakeIngestApdaycStack(Stack):
     def __init__(self, scope: Construct, construct_id: str, project_config: ProjectConfig, **kwargs) -> None:
         super().__init__(scope, construct_id, **kwargs)         
         self.PROJECT_CONFIG = project_config        
@@ -66,7 +66,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         
         resource_name = "raw"
         config = S3DeploymentConfig(
-            f"BucketDeploymentJobsGlueCode{resource_name}",
+            f"BucketDeploymentJobsGlueCode{self.DATASOURCE.lower()}{resource_name}",
             [s3_deployment.Source.asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE}/{resource_name}")],
             self.s3_artifacts_bucket,
             f"{self.Paths.AWS_ARTIFACTS_GLUE_CODE}/{resource_name}"
@@ -76,7 +76,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         
         resource_name = "stage"
         config = S3DeploymentConfig(
-            f"BucketDeploymentJobsGlueCode{resource_name}",
+            f"BucketDeploymentJobsGlueCode{self.DATASOURCE.lower()}{resource_name}",
             [s3_deployment.Source.asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE}/{resource_name}")],
             self.s3_artifacts_bucket,
             f"{self.Paths.AWS_ARTIFACTS_GLUE_CODE}/{resource_name}"
@@ -108,7 +108,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
 
         function_name = "get_endpoint"
         lambda_config = LambdaConfig(
-            function_name=function_name,
+            function_name= f"{self.DATASOURCE.lower()}_{function_name}",
             handler=f"{function_name}/lambda_function.lambda_handler",
             code_path=f"{self.Paths.LOCAL_ARTIFACTS_LAMBDA_CODE_STAGE}",
             runtime=_lambda.Runtime.PYTHON_3_11,
@@ -120,7 +120,7 @@ class CdkDatalakeIngestBigMagicStack(Stack):
          
         function_name = "prepare_table"
         lambda_config = LambdaConfig(
-            function_name=function_name,
+            function_name= f"{self.DATASOURCE.lower()}_{function_name}",
             handler=f"{function_name}/lambda_function.lambda_handler",
             code_path=f"{self.Paths.LOCAL_ARTIFACTS_LAMBDA_CODE_STAGE}",
             runtime=_lambda.Runtime.PYTHON_3_11,
@@ -133,8 +133,9 @@ class CdkDatalakeIngestBigMagicStack(Stack):
     def create_glue_jobs(self):
         """Create a job definition for the Datalake Ingest BigMagic stack"""
         
+        role_name = "crawler_stage"
         config = RoleConfig(
-            role_name=f"crawler_stage",
+            role_name=f"{self.DATASOURCE.lower()}_{role_name}",
             assumed_by=iam.ServicePrincipal("glue.amazonaws.com"),
             inline_policies={
                 'AccessStageS3': iam.PolicyDocument(
@@ -158,6 +159,8 @@ class CdkDatalakeIngestBigMagicStack(Stack):
                      "glue:CreateCrawler",
                      "glue:StartCrawler",
                      "lakeformation:GrantPermissions",
+                     "lakeformation:GetDataAccess",
+                     "lakeformation:GetLFTag",
                      "lakeformation:AddLFTagsToResource",
                      "iam:PassRole"
                      ],
@@ -185,13 +188,13 @@ class CdkDatalakeIngestBigMagicStack(Stack):
             '--datalake-formats': "delta",
             }
                 
-        job_name="extract_data_bigmagic"
+        job_name="extract_data"
         config = GlueJobConfig(
-            job_name=job_name,
+            job_name=f"{self.DATASOURCE.lower()}_{job_name}",
             executable=glue.JobExecutable.python_shell(
                 glue_version=glue.GlueVersion.V1_0,
                 python_version=glue.PythonVersion.THREE,
-                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_RAW}/{job_name}.py")
+                script=glue.Code.from_bucket(self.s3_artifacts_bucket, f"{self.Paths.AWS_ARTIFACTS_GLUE_CODE_RAW}/{job_name}.py")
             ),
             default_arguments=default_arguments,
             continuous_logging=glue.ContinuousLoggingProps(enabled=True),
@@ -203,11 +206,11 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         
         job_name="light_transform"
         config = GlueJobConfig(
-            job_name=job_name,
+            job_name=f"{self.DATASOURCE.lower()}_{job_name}",
             executable=glue.JobExecutable.python_etl(
                 glue_version=glue.GlueVersion.V4_0,
                 python_version=glue.PythonVersion.THREE,
-                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_STAGE}/{job_name}.py")
+                script=glue.Code.from_bucket(self.s3_artifacts_bucket, f"{self.Paths.AWS_ARTIFACTS_GLUE_CODE_STAGE}/{job_name}.py")
             ),
             default_arguments=default_arguments,
             worker_type=glue.WorkerType.G_1_X,
@@ -221,11 +224,11 @@ class CdkDatalakeIngestBigMagicStack(Stack):
 
         job_name="crawler_stage"
         config = GlueJobConfig(
-            job_name=job_name,
+            job_name=f"{self.DATASOURCE.lower()}_{job_name}",
             executable=glue.JobExecutable.python_shell(
                 glue_version=glue.GlueVersion.V1_0,
                 python_version=glue.PythonVersion.THREE,
-                script=glue.Code.from_asset(f"{self.Paths.LOCAL_ARTIFACTS_GLUE_CODE_STAGE}/{job_name}.py")
+                script=glue.Code.from_bucket(self.s3_artifacts_bucket, f"{self.Paths.AWS_ARTIFACTS_GLUE_CODE_STAGE}/{job_name}.py")
             ),
             default_arguments=default_arguments,
             continuous_logging=glue.ContinuousLoggingProps(enabled=True),
@@ -448,8 +451,9 @@ class CdkDatalakeIngestBigMagicStack(Stack):
         process_table_group_map.iterator(prepare_table.next(process_table_map))
          
         # Define the complete state machine
+        step_function_name = f"workflow_transform_data"
         config = StepFunctionConfig(
-            name="light_transform_bigmagic",
+            name=f"{self.DATASOURCE.lower()}_{step_function_name}",
             definition=process_table_group_map
         )
         

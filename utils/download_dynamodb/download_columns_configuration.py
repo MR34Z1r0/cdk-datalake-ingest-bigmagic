@@ -12,7 +12,9 @@ table_name = 'sofia-dev-datalake-columns-specifications-ddb'  # Production table
 table = dynamodb.Table(table_name)
 
 # Endpoints to export
-endpoints = ['PEBDDATA']  # Production endpoint
+team = 'sofia'  # Team name
+datasource = 'apdayc'  # Data source
+endpoints = ['PEBDDATA2']  # Production endpoint
 
 def convertir_desde_booleano(valor):
     if valor is True:
@@ -29,10 +31,7 @@ def descargar_dynamo_a_csv(archivo_csv):
     for endpoint in endpoints:
         try:
             # Build filter expression to match the endpoint pattern
-            filter_expression = boto3.dynamodb.conditions.Key('TARGET_TABLE_NAME').begins_with(
-                endpoint.upper() + '_'
-            )
-            
+            filter_expression = boto3.dynamodb.conditions.Attr('ENDPOINT_NAME').eq(endpoint)            
             # Scan the table with the filter
             response = table.scan(
                 FilterExpression=filter_expression
@@ -62,35 +61,31 @@ def descargar_dynamo_a_csv(archivo_csv):
         # Make sure the required columns are first in the CSV
         required_columns = ['COLUMN_NAME', 'COLUMN_ID', 'IS_FILTER_DATE', 'IS_ID', 
                            'IS_ORDER_BY', 'IS_PARTITION', 'NEW_DATA_TYPE', 
-                           'TABLE_NAME', 'TRANSFORMATION']
-        
-        # Remove TARGET_TABLE_NAME as we don't need it in the CSV
-        if 'TARGET_TABLE_NAME' in fieldnames:
-            fieldnames.remove('TARGET_TABLE_NAME')
-        
-        # Sort fieldnames to ensure required columns come first
-        fieldnames = required_columns + [f for f in fieldnames if f not in required_columns]
+                           'TABLE_NAME', 'TRANSFORMATION', 'ENDPOINT_NAME', 'DATA_SOURCE', 'TEAM']
         
         with open(archivo_csv, 'w', newline='') as archivo:
             # Aquí está el cambio: especificar delimiter='|'
-            writer = csv.DictWriter(archivo, fieldnames=fieldnames, delimiter='|')
+            writer = csv.DictWriter(archivo, fieldnames=required_columns, delimiter=';')
             writer.writeheader()
             
-            for item in items:
-                # Remove TARGET_TABLE_NAME field as it's constructed from TABLE_NAME and endpoint
-                if 'TARGET_TABLE_NAME' in item:
-                    del item['TARGET_TABLE_NAME']
-                
+            for item in items: 
+                row = {}
+                # Only include the required columns
+                for column in required_columns:
+                    if column in item:
+                        row[column] = item[column]
+                    else:
+                        row[column] = ''               
                 # Convert boolean values back to 'T'/'F' format
                 for bool_field in ['IS_FILTER_DATE', 'IS_ID', 'IS_ORDER_BY', 'IS_PARTITION']:
-                    if bool_field in item:
-                        item[bool_field] = convertir_desde_booleano(item[bool_field])
+                    if bool_field in row:
+                        row[bool_field] = convertir_desde_booleano(row[bool_field])
                 
-                writer.writerow(item)
+                writer.writerow(row)
         
         print(f"Datos exportados exitosamente a {archivo_csv}")
     else:
         print("No se encontraron elementos para exportar.")
 
 # Execute the function
-descargar_dynamo_a_csv('datalake_columns_bigmagic.csv')
+descargar_dynamo_a_csv(f'datalake_columns_{team}_{datasource}.csv')

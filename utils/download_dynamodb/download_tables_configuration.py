@@ -12,26 +12,21 @@ table_name = 'sofia-dev-datalake-configuration-ddb'  # Production table
 table = dynamodb.Table(table_name)
 
 # Endpoints to export
-endpoints = ['PEBDDATA']  # Production endpoint - sellin
+team = 'sofia'  # Team name
+datasource = 'apdayc'  # Data source
+endpoints = ['PEBDDATA2']  # Production endpoint - sellin
 
 def descargar_dynamo_a_csv(archivo_csv):
     items = []
     
     # For each endpoint, scan the table and filter by ENDPOINT
     for endpoint in endpoints:
-        try:
-            endpoint_filter = endpoint.upper().replace("_ING", "")
-            
+        try:            
             # Build filter expression to match the endpoint
-            filter_expression = boto3.dynamodb.conditions.Attr('ENDPOINT').eq(endpoint_filter)
-            
-            # Add ACTIVE_FLAG filter to get only active records
-            active_filter = boto3.dynamodb.conditions.Attr('ACTIVE_FLAG').eq('Y')
-            combined_filter = filter_expression & active_filter
-            
+            filter_expression = boto3.dynamodb.conditions.Attr('ENDPOINT_NAME').eq(endpoint)
             # Scan the table with the filter
             response = table.scan(
-                FilterExpression=combined_filter
+                FilterExpression=filter_expression
             )
             items.extend(response['Items'])
             
@@ -50,16 +45,21 @@ def descargar_dynamo_a_csv(archivo_csv):
     
     # If items were found, write to CSV
     if items:
+        # Get all possible field names (columns) from all items
+        fieldnames = set()
+        for item in items:
+            fieldnames.update(item.keys())
+
         # Required columns as specified
         required_columns = [
-            'COLUMNS', 'DELAY_INCREMENTAL_INI', 'FILTER_COLUMN', 'FILTER_DATA_TYPE',
+            'COLUMNS', 'DELAY_INCREMENTAL_INI', 'FILTER_COLUMN', 'PARTITION_COLUMN', 'FILTER_DATA_TYPE',
             'FILTER_EXP', 'ID_COLUMN', 'JOIN_EXPR', 'PROCESS_ID', 'SOURCE_SCHEMA',
-            'SOURCE_TABLE', 'SOURCE_TABLE_TYPE', 'STAGE_TABLE_NAME'
+            'SOURCE_TABLE', 'SOURCE_TABLE_TYPE', 'STAGE_TABLE_NAME', 'ENDPOINT_NAME', 'DATA_SOURCE', 'TEAM'
         ]
         
         with open(archivo_csv, 'w', newline='') as archivo:
             # Modificación aquí: agregar delimiter='|'
-            writer = csv.DictWriter(archivo, fieldnames=required_columns, delimiter='|')
+            writer = csv.DictWriter(archivo, fieldnames=required_columns, delimiter=';')
             writer.writeheader()
             
             for item in items:
@@ -78,4 +78,4 @@ def descargar_dynamo_a_csv(archivo_csv):
         print("No se encontraron elementos para exportar.")
 
 # Execute the function
-descargar_dynamo_a_csv('datalake_tables_bigmagic.csv')
+descargar_dynamo_a_csv(f'datalake_tables_{team}_{datasource}.csv')

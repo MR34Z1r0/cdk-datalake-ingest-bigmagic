@@ -1,6 +1,7 @@
 import boto3
 import csv
 import os
+import argparse
 
 region_name = 'us-east-1'
 boto3.setup_default_session(profile_name='prd-valorx-admin')
@@ -8,13 +9,24 @@ boto3.setup_default_session(profile_name='prd-valorx-admin')
 dynamodb = boto3.resource('dynamodb', region_name=region_name)  
 table_name = 'sofia-dev-datalake-configuration-ddb' #produccion
 table = dynamodb.Table(table_name)
- 
-endpoints = ['PEBDDATA2'] #produccion - sellin 
+
+
+parser = argparse.ArgumentParser(description='Extract data from source and load to S3')
+parser.add_argument("-t", '--TEAM', required=True, help='Team name')
+parser.add_argument("-d", '--DATASOURCE', required=True, help='Data source name')
+parser.add_argument("-e", '--ENDPOINTS', help='List of endpoints to process, separate for ","')
+parser.add_argument("-i", '--INSTANCE', help='Instance name', default='PE')  # Default to 'PE'
+args = parser.parse_args()
+
+team = args.TEAM  # Team name
+datasource = args.DATASOURCE  # Data source
+endpoints = args.ENDPOINTS.split(',') #produccion
+
 
 
 def subir_csv_a_dynamo(archivo_csv):
     with open(archivo_csv, 'r') as archivo:
-        reader = csv.DictReader(archivo)  # Lee el CSV como diccionario
+        reader = csv.DictReader(archivo, delimiter=';')  # Lee el CSV como diccionario
         for fila in reader:
             if 'STATUS' in fila:
                 if fila['STATUS'] != 'ACTIVE' and fila['STATUS'] != 'A' and fila['STATUS'] != 'a':
@@ -46,7 +58,10 @@ def subir_csv_a_dynamo(archivo_csv):
                         fila['TARGET_TABLE_NAME'] = endpoint.upper() + '_' + fila['SOURCE_TABLE'].upper()
                     else:
                         fila['TARGET_TABLE_NAME'] = endpoint.upper() + '_' + fila['STAGE_TABLE_NAME'].upper()
-                    fila['ENDPOINT'] = endpoint.upper().replace("_ING","")
+                    fila['TEAM'] = team
+                    fila['DATA_SOURCE'] = datasource
+                    fila['ENDPOINT_NAME'] = endpoint #endpoint.upper().replace("_ING","")
+                    fila['INSTANCE'] = args.INSTANCE.upper()  # Add country from argument
                     fila['CRAWLER'] = False
                     #fila['CRAWLER'] = True
                     fila['DELAY_INCREMENTAL_INI'] = fila['DELAY_INCREMENTAL_INI'].replace("'",'')
@@ -56,7 +71,7 @@ def subir_csv_a_dynamo(archivo_csv):
                     print(f"Error subiendo {fila}: {e}")
             
  
-subir_csv_a_dynamo('datalake_tables_bigmagic.csv') #add new tables
+subir_csv_a_dynamo(f'datalake_tables_{team}_{datasource}.csv') #add new tables
 
 
 
