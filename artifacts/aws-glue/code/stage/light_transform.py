@@ -74,7 +74,7 @@ columns_array = dynamodb_client.query(
 )
 
 table_data = config_table_metadata.get_item(Key={'TARGET_TABLE_NAME': table_name})['Item']
-endpoint_data = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': table_data['ENDPOINT']})['Item']
+endpoint_data = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': table_data['ENDPOINT_NAME']})['Item']
 
 class NoDataToMigrateException(Exception):
     def __init__(self):
@@ -359,9 +359,9 @@ def condition_generator(id_columns):
     return string[:-4]
 
 try:
-    #DAYS_LIMA = '15'
-    s3_raw_path = s3_source + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + table_data['ENDPOINT'] + "/" + table_data['SOURCE_TABLE'].split()[0] + "/year=" + YEARS_LIMA + "/month=" + MONTHS_LIMA + "/day=" + DAYS_LIMA + "/"
-    s3_stage_path = s3_target + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + table_data['ENDPOINT'] + "/" + table_data['STAGE_TABLE_NAME'] + "/"
+    #DAYS_LIMA = '26'
+    s3_raw_path = s3_source + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + table_data['ENDPOINT_NAME'] + "/" + table_data['SOURCE_TABLE'].split()[0] + "/year=" + YEARS_LIMA + "/month=" + MONTHS_LIMA + "/day=" + DAYS_LIMA + "/"
+    s3_stage_path = s3_target + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + table_data['ENDPOINT_NAME'] + "/" + table_data['STAGE_TABLE_NAME'] + "/"
     try:
         raw_df = spark.read.format("csv").option("compression", "gzip").option("header", True).load(s3_raw_path)
         raw_df.show()

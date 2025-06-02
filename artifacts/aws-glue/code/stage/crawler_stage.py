@@ -387,15 +387,15 @@ def build_crawler_targets(total_list: List[str]) -> List[Dict[str, Any]]:
             table_data = table_response['Item']
             
             # Obtener datos del endpoint
-            endpoint_response = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': table_data['ENDPOINT']})
+            endpoint_response = endpoint_table_metadata.get_item(Key={'ENDPOINT_NAME': table_data['ENDPOINT_NAME']})
             if 'Item' not in endpoint_response:
-                logger.warning(f"Endpoint '{table_data['ENDPOINT']}' no encontrado, saltando tabla '{table}'")
+                logger.warning(f"Endpoint '{table_data['ENDPOINT_NAME']}' no encontrado, saltando tabla '{table}'")
                 continue
                 
             endpoint_data = endpoint_response['Item']
             
             # Construir ruta S3
-            s3_path = f"{s3_target}{args['TEAM']}/{args['DATA_SOURCE']}/{table_data['ENDPOINT']}/{table_data['STAGE_TABLE_NAME']}/"
+            s3_path = f"{s3_target}{args['TEAM']}/{args['DATA_SOURCE']}/{table_data['ENDPOINT_NAME']}/{table_data['STAGE_TABLE_NAME']}/"
             
             data_source = {
                 'DeltaTables': [s3_path],
@@ -601,11 +601,11 @@ def get_dynamo_crawler_status_for_endpoint(endpoint_name: str) -> Tuple[List[str
                 processed_count += 1
                 
                 # Validar que el elemento tenga la estructura esperada
-                if 'ENDPOINT' not in stage_output:
+                if 'ENDPOINT_NAME' not in stage_output:
                     logger.debug(f"Elemento sin ENDPOINT encontrado, saltando...")
                     continue
                 
-                if stage_output['ENDPOINT'] == endpoint_name:
+                if stage_output['ENDPOINT_NAME'] == endpoint_name:
                     table_name = stage_output.get('TARGET_TABLE_NAME')
                     if not table_name:
                         logger.warning("Elemento sin TARGET_TABLE_NAME encontrado")

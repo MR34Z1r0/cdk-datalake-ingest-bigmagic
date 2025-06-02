@@ -71,7 +71,7 @@ def subir_csv_a_dynamo(archivo_csv):
                     print(f"Error subiendo {fila}: {e}")
             
  
-subir_csv_a_dynamo(f'datalake_tables_{team}_{datasource}.csv') #add new tables
+subir_csv_a_dynamo(f'datalake_tables_{team}_{datasource}_part2.csv') #add new tables
 
 
 

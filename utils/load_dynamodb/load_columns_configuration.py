@@ -81,7 +81,7 @@ def subir_csv_a_dynamo(archivo_csv):
                 except Exception as e:
                     print(f"Error subiendo {fila}: {e}")
 
-subir_csv_a_dynamo(f'datalake_columns_{team}_{datasource}.csv') #add new columns
+subir_csv_a_dynamo(f'datalake_columns_{team}_{datasource}_part2.csv') #add new columns
 
 
 

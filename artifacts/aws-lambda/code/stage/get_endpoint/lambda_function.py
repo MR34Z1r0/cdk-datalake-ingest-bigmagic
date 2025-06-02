@@ -71,12 +71,12 @@ def lambda_handler(event, context):
           
         table_names = ""
         table_data = db_table_config.get_item(Key={'TARGET_TABLE_NAME': table})['Item']
-        endpoint = table_data['ENDPOINT']
+        endpoint = table_data['ENDPOINT_NAME']
         process_id = table_data['PROCESS_ID']
         
         try:
             raw_failed_tables = db_table_config.scan(
-                FilterExpression=f"ENDPOINT = :val1 AND ACTIVE_FLAG = :val2 AND STATUS_RAW = :val3 ",
+                FilterExpression=f"ENDPOINT_NAME = :val1 AND ACTIVE_FLAG = :val2 AND STATUS_RAW = :val3 ",
                 ExpressionAttributeValues={
                     ':val1': endpoint,
                     ':val2': 'Y',
@@ -86,7 +86,7 @@ def lambda_handler(event, context):
             logger.info(f"failed tables in raw: {raw_failed_tables}")
 
             stage_failed_tables = db_table_config.scan(
-                FilterExpression=f"ENDPOINT = :val1 AND ACTIVE_FLAG = :val2 AND STATUS_STAGE = :val3 ",
+                FilterExpression=f"ENDPOINT_NAME = :val1 AND ACTIVE_FLAG = :val2 AND STATUS_STAGE = :val3 ",
                 ExpressionAttributeValues={
                     ':val1': endpoint,
                     ':val2': 'Y',
