@@ -28,10 +28,6 @@
             "local": "./artifacts",
             "aws_lambda_layers": {
               "layer_aje_libs": "arn:aws:lambda:${region}:${account}:layer:layer_aje_libs:3",
-              "layer_powertools": "arn:aws:lambda:${region}:017000801446:layer:AWSLambdaPowertoolsPythonV3-python313-x86_64:11",
-              "layer_pinecone": "arn:aws:lambda:${region}:${account}:layer:layer_pinecone:1",
-              "layer_docs": "arn:aws:lambda:${region}:${account}:layer:layer_docs:4",
-              "layer_requests": "arn:aws:lambda:${region}:${account}:layer:layer_requests:2",
               "layer_pyodbc": "arn:aws:lambda:${region}:${account}:layer:layer_pyodbc:2"
             }              
           },
@@ -66,38 +62,34 @@
             "local": "./artifacts",
             "aws_lambda_layers": {
               "layer_aje_libs": "arn:aws:lambda:${region}:${account}:layer:layer_aje_libs:3",
-              "layer_powertools": "arn:aws:lambda:${region}:017000801446:layer:AWSLambdaPowertoolsPythonV3-python313-x86_64:11",
-              "layer_pinecone": "arn:aws:lambda:${region}:${account}:layer:layer_pinecone:1",
-              "layer_docs": "arn:aws:lambda:${region}:${account}:layer:layer_docs:4",
-              "layer_requests": "arn:aws:lambda:${region}:${account}:layer:layer_requests:2",
-              "layer_pyodbc": "arn:aws:lambda:${region}:${account}:layer:layer_pyodbc:2"
+              "layer_pyodbc": "arn:aws:lambda:us-west-2:566121885938:layer:layer_pyodbc:1"
             }              
           },
           "topic_notifications": {
-              "failed": "sofia-dev-datalake-failed-sns",
-              "success": "sofia-dev-datalake-success-sns"
+              "failed": "sofia-prod-datalake-failed-sns",
+              "success": "sofia-prod-datalake-success-sns"
           },
           "sns_notifications": [
             "miguel.espinoza@ajegroup.com",
             "da.plataforma@ajegroup.com"
           ],
           "s3_buckets": {
-            "artifacts": "sofia-566121885938-us-east-1-dev-datalake-artifacts-s3",
-            "landing": "sofia-566121885938-us-east-1-dev-datalake-landing-s3",
-            "raw": "sofia-566121885938-us-east-1-dev-datalake-raw-s3",
-            "stage": "sofia-566121885938-us-east-1-dev-datalake-stage-s3",
-            "analytics": "sofia-566121885938-us-east-1-dev-datalake-analytics-s3"
+            "artifacts": "sofia-566121885938-us-west-2-prod-datalake-artifacts-s3",
+            "landing": "sofia-566121885938-us-west-2-prod-datalake-landing-s3",
+            "raw": "sofia-566121885938-us-west-2-prod-datalake-raw-s3",
+            "stage": "sofia-566121885938-us-west-2-prod-datalake-stage-s3",
+            "analytics": "sofia-566121885938-us-west-2-prod-datalake-analytics-s3"
           },
           "dynamodb_tables":{
-            "configuration": "sofia-dev-datalake-configuration-ddb",
-            "credentials": "sofia-dev-datalake-credentials-ddb",
-            "columns-specifications": "sofia-dev-datalake-columns-specifications-ddb",
-            "logs": "sofia-dev-datalake-logs-ddb"
+            "configuration": "sofia-prod-datalake-configuration-ddb",
+            "credentials": "sofia-prod-datalake-credentials-ddb",
+            "columns-specifications": "sofia-prod-datalake-columns-specifications-ddb",
+            "logs": "sofia-prod-datalake-logs-ddb"
           },
           "team": "sofia",
           "datasource": "apdayc",
           "log_level": "DEBUG",
-          "comment": "Process to ingest data from Apdayc to Datalake PROD environment"
+          "comment": "Process to ingest data from Apdayc to Datalake PROD environment"          
         }
       }
     }

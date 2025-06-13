@@ -1,20 +1,29 @@
 import boto3
 import csv
 import os
+import argparse
 
-# Configure DynamoDB client
-region_name = 'us-east-1'
-boto3.setup_default_session(profile_name='prd-valorx-admin', region_name=region_name)
-dynamodb = boto3.resource('dynamodb')
+parser = argparse.ArgumentParser(description='Extract data from source and load to S3')
+parser.add_argument("-r", '--REGION', required=True, help='Region name', default ='us-east-1')  # Default to 'us-east-1'
+parser.add_argument("-n", '--ENVIRONMENT', required=True, help='Environment name', default='dev')  # Default to 'dev'
+parser.add_argument("-t", '--TEAM', required=True, help='Team name')
+parser.add_argument("-d", '--DATASOURCE', required=True, help='Data source name')
+parser.add_argument("-e", '--ENDPOINTS', help='List of endpoints to process, separate for ","')
+parser.add_argument("-i", '--INSTANCE', help='Instance name', default='PE')  # Default to 'PE'
+args = parser.parse_args()
 
-# Table information
-table_name = 'sofia-dev-datalake-configuration-ddb'  # Production table
-table = dynamodb.Table(table_name)
+project_name = 'datalake'
+region_name = args.REGION
+team = args.TEAM.lower()  # Team name
+datasource = args.DATASOURCE  # Data source
+endpoints = args.ENDPOINTS.split(',') #produccion
+environment = args.ENVIRONMENT.lower()  # Environment name
 
-# Endpoints to export
-team = 'sofia'  # Team name
-datasource = 'apdayc'  # Data source
-endpoints = ['PEBDDATA2']  # Production endpoint - sellin
+boto3.setup_default_session(profile_name='prd-valorx-admin')
+
+dynamodb = boto3.resource('dynamodb', region_name=region_name)  
+table_name = f'{team}-{environment}-{project_name}-configuration-ddb' #produccion
+table = dynamodb.Table(table_name)  
 
 def descargar_dynamo_a_csv(archivo_csv):
     items = []
@@ -78,4 +87,4 @@ def descargar_dynamo_a_csv(archivo_csv):
         print("No se encontraron elementos para exportar.")
 
 # Execute the function
-descargar_dynamo_a_csv(f'datalake_tables_{team}_{datasource}.csv')
+descargar_dynamo_a_csv(f'{project_name}_tables_{team}_{datasource}.csv')
