@@ -36,15 +36,15 @@
               "success": "aje-dev-datalake-success-sns"
           },
           "sns_notifications": [
-            "miguel.espinoza@ajegroup.com",
-            "da.plataforma@ajegroup.com"
+            "mespinoza1388@gmail.com",
+            "jmalvarez010902@gmail.com"
           ],
           "s3_buckets": {
-            "artifacts": "aje-dev-datalake-832257724409-us-east-2-artifacts-s3",
-            "landing": "aje-dev-datalake-832257724409-us-east-2-landing-s3",
-            "raw": "aje-dev-datalake-832257724409-us-east-2-raw-s3",
-            "stage": "aje-dev-datalake-832257724409-us-east-2-stage-s3",
-            "analytics": "aje-dev-datalake-832257724409-us-east-2-analytics-s3"
+            "artifacts": "aje-dev-datalake-510543735161-us-east-1-artifacts-s3",
+            "landing": "aje-dev-datalake-510543735161-us-east-1-landing-s3",
+            "raw": "aje-dev-datalake-510543735161-us-east-1-raw-s3",
+            "stage": "aje-dev-datalake-510543735161-us-east-1-stage-s3",
+            "analytics": "aje-dev-datalake-510543735161-us-east-1-analytics-s3"
           },
           "dynamodb_tables":{
             "configuration": "aje-dev-datalake-configuration-ddb",
@@ -52,15 +52,7 @@
             "columns-specifications": "aje-dev-datalake-columns-specifications-ddb",
             "logs": "aje-dev-datalake-logs-ddb"
           },
-          "glue_connection":{
-            "name": "bigmagic-vpc-connection",
-            "type": "NETWORK",
-            "vpc_id": "vpc-031ecad192b797a50",
-            "subnet_id": "subnet-02bc2c444d313fd28",
-            "security_group_ids": ["sg-0d6185d8f6fcdd237"],
-            "availability_zone": "us-east-2a"
-          },
-          "team": "athenea",
+          "team": "sofia",
           "datasource": "bigmagic",
           "log_level": "DEBUG",
           "comment": "Process to ingest data from BigMagic to Datalake DEV environment"          
@@ -78,15 +70,15 @@
               "success": "aje-prod-datalake-success-sns"
           },
           "sns_notifications": [
-            "miguel.espinoza@ajegroup.com",
-            "da.plataforma@ajegroup.com"
+            "mespinoza1388@gmail.com",
+            "jmalvarez010902@gmail.com"
           ],
           "s3_buckets": {
-            "artifacts": "aje-prod-datalake-399723489351-us-east-2-artifacts-s3",
-            "landing": "aje-prod-datalake-399723489351-us-east-2-landing-s3",
-            "raw": "aje-prod-datalake-399723489351-us-east-2-raw-s3",
-            "stage": "aje-prod-datalake-399723489351-us-east-2-stage-s3",
-            "analytics": "aje-prod-datalake-399723489351-us-east-2-analytics-s3"
+            "artifacts": "aje-prod-datalake-510543735161-us-west-2-artifacts-s3",
+            "landing": "aje-prod-datalake-510543735161-us-west-2-landing-s3",
+            "raw": "aje-prod-datalake-510543735161-us-west-2-raw-s3",
+            "stage": "aje-prod-datalake-510543735161-us-west-2-stage-s3",
+            "analytics": "aje-prod-datalake-510543735161-us-west-2-analytics-s3"
           },
           "dynamodb_tables":{
             "configuration": "aje-prod-datalake-configuration-ddb",
@@ -94,15 +86,7 @@
             "columns-specifications": "aje-prod-datalake-columns-specifications-ddb",
             "logs": "aje-prod-datalake-logs-ddb"
           },
-          "glue_connection":{
-            "name": "bigmagic-vpc-connection",
-            "type": "NETWORK",
-            "vpc_id": "vpc-prod-placeholder",
-            "subnet_id": "subnet-prod-placeholder",
-            "security_group_ids": ["sg-prod-placeholder"],
-            "availability_zone": "us-east-2a"
-          },
-          "team": "aje",
+          "team": "sofia",
           "datasource": "bigmagic",
           "log_level": "DEBUG",
           "comment": "Process to ingest data from BigMagic to Datalake PROD environment"          
