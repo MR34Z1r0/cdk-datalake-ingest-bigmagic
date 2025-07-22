@@ -557,7 +557,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         tables = []
         
         with open('artifacts/configuration/csv/tables.csv', newline='', encoding='utf-8') as csvfile:
-            reader = csv.DictReader(csvfile)
+            reader = csv.DictReader(csvfile, delimiter=';')
             for row in reader:
                 if not (row['SOURCE_SCHEMA'] and row['SOURCE_TABLE']):
                     continue
@@ -584,7 +584,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         current_env = self.PROJECT_CONFIG.environment.value.upper()  # Get current environment (DEV/PROD)
         
         with open('artifacts/configuration/csv/credentials.csv', newline='', encoding='utf-8') as csvfile:
-            reader = csv.DictReader(csvfile)
+            reader = csv.DictReader(csvfile, delimiter=';')
             for row in reader:
                 # Match both SRC_DB_NAME and ENV
                 if (row['SRC_DB_NAME'] == self.src_db_name and 
@@ -601,7 +601,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         logical_names = set(row['STAGE_TABLE_NAME'].upper() for row in tables if row.get('STAGE_TABLE_NAME'))
         columns = []
         with open('artifacts/configuration/csv/columns.csv', newline='', encoding='utf-8') as csvfile:
-            reader = csv.DictReader(csvfile)
+            reader = csv.DictReader(csvfile, delimiter=';')
             for row in reader:
                 if row.get('TABLE_NAME', '').upper() in logical_names:
                     columns.append(row)

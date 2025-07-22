@@ -54,7 +54,7 @@ shared_tables = {}
 shared_job_registry = {}
 
 with open('artifacts/configuration/csv/tables.csv', newline='', encoding='utf-8') as tables_file:
-    tables_reader = csv.DictReader(tables_file)
+    tables_reader = csv.DictReader(tables_file, delimiter=';')
     for row in tables_reader:
         if row['PROCESS_ID'] and row['SOURCE_SCHEMA'] and row['SOURCE_TABLE']:
             tables_data.append(row)
@@ -72,7 +72,7 @@ instance_groups = {}  # instance -> list of db_names
 current_env = project_config.environment.value.upper()  # Get current environment (DEV/PROD)
 
 with open('artifacts/configuration/csv/credentials.csv', newline='', encoding='utf-8') as creds_file:
-    creds_reader = csv.DictReader(creds_file)
+    creds_reader = csv.DictReader(creds_file, delimiter=';')
     for row in creds_reader:
         # Only include databases for the current environment
         if row.get('ENV', '').upper() == current_env:
