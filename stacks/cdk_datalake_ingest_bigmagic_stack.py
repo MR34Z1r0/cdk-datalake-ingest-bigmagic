@@ -175,7 +175,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         # Read credentials to get database list that match current environment
         db_names = []
         with open('artifacts/configuration/csv/credentials.csv', newline='', encoding='utf-8') as creds_file:
-            creds_reader = csv.DictReader(creds_file)
+            creds_reader = csv.DictReader(creds_file, delimiter=';')
             for row in creds_reader:
                 # Only include databases that match the current environment
                 if row['ENV'].lower() == self.PROJECT_CONFIG.environment.value.lower():
@@ -250,7 +250,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         # Read credentials to get database list that match current environment
         db_names = []
         with open('artifacts/configuration/csv/credentials.csv', newline='', encoding='utf-8') as creds_file:
-            creds_reader = csv.DictReader(creds_file)
+            creds_reader = csv.DictReader(creds_file, delimiter=';')
             for row in creds_reader:
                 # Only include databases that match the current environment
                 if row['ENV'].lower() == self.PROJECT_CONFIG.environment.value.lower():
@@ -656,7 +656,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
             current_env = self.PROJECT_CONFIG.environment.value.upper()
             with open('artifacts/configuration/csv/credentials.csv', newline='', encoding='utf-8') as csvfile:
                 import csv
-                reader = csv.DictReader(csvfile)
+                reader = csv.DictReader(csvfile, delimiter=';')
                 for row in reader:
                     # Match both SRC_DB_NAME and ENV
                     if (row.get('SRC_DB_NAME', '') == endpoint and 
