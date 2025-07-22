@@ -22,6 +22,9 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         self.name_builder = NameBuilder(self.PROJECT_CONFIG)
         self.Paths = Paths(self.PROJECT_CONFIG.app_config)
 
+        
+        self.glue_jobs = []
+        self.job_name_registry = []  # Store actual job names for Step Function creation
         self.columns = self._read_columns_csv()
         self._import_shared_resources()
         self._create_deduplicated_glue_jobs()
@@ -600,7 +603,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         tables = self._read_tables_csv()
         logical_names = set(row['STAGE_TABLE_NAME'].upper() for row in tables if row.get('STAGE_TABLE_NAME'))
         columns = []
-        with open('artifacts/configuration/csv/columns.csv', newline='', encoding='utf-8') as csvfile:
+        with open('artifacts/configuration/csv/columns.csv', newline='', encoding='latin-1') as csvfile:
             reader = csv.DictReader(csvfile, delimiter=';')
             for row in reader:
                 if row.get('TABLE_NAME', '').upper() in logical_names:
