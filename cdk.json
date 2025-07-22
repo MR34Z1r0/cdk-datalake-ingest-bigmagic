@@ -40,11 +40,11 @@
             "da.plataforma@ajegroup.com"
           ],
           "s3_buckets": {
-            "artifacts": "aje-dev-datalake-832257724409-us-east-2-artifacts-s3",
-            "landing": "aje-dev-datalake-832257724409-us-east-2-landing-s3",
-            "raw": "aje-dev-datalake-832257724409-us-east-2-raw-s3",
-            "stage": "aje-dev-datalake-832257724409-us-east-2-stage-s3",
-            "analytics": "aje-dev-datalake-832257724409-us-east-2-analytics-s3"
+            "artifacts": "sofia-510543735161-us-east-1-dev-datalake-artifacts-s3",
+            "landing": "sofia-510543735161-us-east-1-dev-datalake-landing-s3",
+            "raw": "sofia-510543735161-us-east-1-dev-datalake-raw-s3",
+            "stage": "sofia-510543735161-us-east-1-dev-datalake-stage-s3",
+            "analytics": "sofia-510543735161-us-east-1-dev-datalake-analytics-s3"
           },
           "dynamodb_tables":{
             "configuration": "aje-dev-datalake-configuration-ddb",
