@@ -331,7 +331,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             return None
 
     def _create_step_function(self):
-        """Create orchestration Step Function for all group jobs"""
+        """Create orchestration Step Function for all group jobs with extract flag control"""
         import aws_cdk.aws_stepfunctions as sfn
         import aws_cdk.aws_stepfunctions_tasks as tasks
         
@@ -369,6 +369,9 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             extract_job_configs = [job for job in job_configs if job["job_type"] == "extract"]
             transform_job_configs = [job for job in job_configs if job["job_type"] == "light_transform"]
             
+            # Create a Choice state to evaluate the run_extract flag
+            run_extract_choice = sfn.Choice(self, "ShouldRunExtract")
+            
             # Create a Pass state to prepare extract job configs
             prepare_extract_jobs = sfn.Pass(
                 self, "PrepareExtractJobs",
@@ -390,22 +393,41 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                 result_path="$.extract_results"
             )
             
-            # Create a Pass state to prepare transform job configs
-            prepare_transform_jobs = sfn.Pass(
-                self, "PrepareTransformJobs",
+            # Create separate Pass states for transform job configs (one for each branch)
+            prepare_transform_jobs_extract_branch = sfn.Pass(
+                self, "PrepareTransformJobsExtractBranch",
                 parameters={
                     "jobs": transform_job_configs,
                     "process_id": str(self.process_id),
                     "database": self.src_db_name,
-                    "execution_start.$": "$$.Execution.StartTime",
+                    "execution_start.$": "$.Execution.StartTime",
                     "job_type": "transform"
                 },
                 result_path="$.transform_job_configs"
             )
             
-            # Create a Map state for transform jobs with concurrency control
-            transform_map_state = sfn.Map(
-                self, "ProcessTransformJobs",
+            prepare_transform_jobs_only_branch = sfn.Pass(
+                self, "PrepareTransformJobsOnlyBranch",
+                parameters={
+                    "jobs": transform_job_configs,
+                    "process_id": str(self.process_id),
+                    "database": self.src_db_name,
+                    "execution_start.$": "$.Execution.StartTime",
+                    "job_type": "transform"
+                },
+                result_path="$.transform_job_configs"
+            )
+            
+            # Create separate Map states for transform jobs (one for each branch)
+            transform_map_state_extract_branch = sfn.Map(
+                self, "ProcessTransformJobsExtractBranch",
+                max_concurrency=15,
+                items_path="$.transform_job_configs.jobs",
+                result_path="$.transform_results"
+            )
+            
+            transform_map_state_only_branch = sfn.Map(
+                self, "ProcessTransformJobsOnlyBranch",
                 max_concurrency=15,
                 items_path="$.transform_job_configs.jobs",
                 result_path="$.transform_results"
@@ -420,8 +442,8 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                     "job_name": sfn.JsonPath.string_at("$.job_name"),
                     "job_arguments": {
                         "--TABLE_NAME": sfn.JsonPath.string_at("$.table_name"),
-                        "--PROCESS_ID": str(self.process_id),  # Use the process_id directly from stack construction
-                        "--SRC_DB_NAME": self.src_db_name  # Use the database name directly from stack construction
+                        "--PROCESS_ID": str(self.process_id),
+                        "--SRC_DB_NAME": self.src_db_name
                     }
                 }),
                 result_path="$.execution_result"
@@ -435,24 +457,46 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                 errors=["States.TaskFailed", "Lambda.ServiceException", "Lambda.AWSLambdaException"]
             )
             
-            # Create a separate task to invoke the base Step Function for transform jobs
-            invoke_transform_job = tasks.StepFunctionsStartExecution(
-                self, "InvokeTransformJob",
+            # Create separate tasks to invoke the base Step Function for transform jobs
+            invoke_transform_job_extract_branch = tasks.StepFunctionsStartExecution(
+                self, "InvokeTransformJobExtractBranch",
                 state_machine=self.base_step_function,
                 integration_pattern=sfn.IntegrationPattern.RUN_JOB,
                 input=sfn.TaskInput.from_object({
                     "job_name": sfn.JsonPath.string_at("$.job_name"),
                     "job_arguments": {
                         "--TABLE_NAME": sfn.JsonPath.string_at("$.table_name"),
-                        "--PROCESS_ID": str(self.process_id),  # Use the process_id directly from stack construction
-                        "--SRC_DB_NAME": self.src_db_name  # Use the database name directly from stack construction
+                        "--PROCESS_ID": str(self.process_id),
+                        "--SRC_DB_NAME": self.src_db_name
                     }
                 }),
                 result_path="$.execution_result"
             )
             
-            # Add retry for transform job execution failures
-            invoke_transform_job.add_retry(
+            invoke_transform_job_only_branch = tasks.StepFunctionsStartExecution(
+                self, "InvokeTransformJobOnlyBranch",
+                state_machine=self.base_step_function,
+                integration_pattern=sfn.IntegrationPattern.RUN_JOB,
+                input=sfn.TaskInput.from_object({
+                    "job_name": sfn.JsonPath.string_at("$.job_name"),
+                    "job_arguments": {
+                        "--TABLE_NAME": sfn.JsonPath.string_at("$.table_name"),
+                        "--PROCESS_ID": str(self.process_id),
+                        "--SRC_DB_NAME": self.src_db_name
+                    }
+                }),
+                result_path="$.execution_result"
+            )
+            
+            # Add retry for both transform job execution failures
+            invoke_transform_job_extract_branch.add_retry(
+                max_attempts=2,
+                interval=Duration.seconds(10),
+                backoff_rate=1.5,
+                errors=["States.TaskFailed", "Lambda.ServiceException", "Lambda.AWSLambdaException"]
+            )
+            
+            invoke_transform_job_only_branch.add_retry(
                 max_attempts=2,
                 interval=Duration.seconds(10),
                 backoff_rate=1.5,
@@ -461,7 +505,14 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             
             # Set the Map states' iterator to their respective invoke tasks
             extract_map_state.iterator(invoke_extract_job)
-            transform_map_state.iterator(invoke_transform_job)
+            transform_map_state_extract_branch.iterator(invoke_transform_job_extract_branch)
+            transform_map_state_only_branch.iterator(invoke_transform_job_only_branch)
+            
+            # Create the extract workflow branch
+            extract_workflow = prepare_extract_jobs.next(extract_map_state).next(prepare_transform_jobs_extract_branch).next(transform_map_state_extract_branch)
+            
+            # Create the transform-only workflow branch
+            transform_only_workflow = prepare_transform_jobs_only_branch.next(transform_map_state_only_branch)
             
             # Create a task to invoke the crawler job after transform jobs
             if self.crawler_job_name:
@@ -500,17 +551,26 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                     errors=["States.TaskFailed", "Lambda.ServiceException", "Lambda.AWSLambdaException"]
                 )
                 
-                # Add crawler job to the workflow chain
+                # Add crawler job to both workflow branches
                 crawler_workflow = prepare_crawler_job.next(invoke_crawler_job)
+                extract_workflow.next(crawler_workflow)
+                transform_only_workflow.next(crawler_workflow)
             else:
                 # Create a pass state to skip the crawler if not available
-                crawler_workflow = sfn.Pass(
+                skip_crawler = sfn.Pass(
                     self, "SkipCrawler",
                     result_path="$.skip_crawler"
                 )
+                extract_workflow.next(skip_crawler)
+                transform_only_workflow.next(skip_crawler)
             
-            # Workflow ends after crawler (catalog job removed)
-            definition = prepare_extract_jobs.next(extract_map_state).next(prepare_transform_jobs).next(transform_map_state).next(crawler_workflow)
+            # Define the choice conditions and workflow branches
+            definition = run_extract_choice.when(
+                sfn.Condition.boolean_equals("$.run_extract", True),
+                extract_workflow
+            ).otherwise(
+                transform_only_workflow
+            )
             
             # Create error handler states
             processing_failed = sfn.Fail(
@@ -531,9 +591,10 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                 result_path="$.map_error_details"
             ).next(processing_failed)
             
-            # Add error handlers to the Map states
+            # Add error handlers to all Map states
             extract_map_state.add_catch(handle_map_failures, errors=["States.ALL"], result_path="$.extract_error")
-            transform_map_state.add_catch(handle_map_failures, errors=["States.ALL"], result_path="$.transform_error")
+            transform_map_state_extract_branch.add_catch(handle_map_failures, errors=["States.ALL"], result_path="$.transform_error")
+            transform_map_state_only_branch.add_catch(handle_map_failures, errors=["States.ALL"], result_path="$.transform_error")
         else:
             definition = sfn.Pass(self, "NoTablesToProcess")
         
@@ -577,8 +638,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                 else:
                     # Single process table
                     if row['PROCESS_ID'] == str(self.process_id):
-                        tables.append(row)
-                        
+                        tables.append(row) 
         return tables
 
     def _read_credentials_csv(self):

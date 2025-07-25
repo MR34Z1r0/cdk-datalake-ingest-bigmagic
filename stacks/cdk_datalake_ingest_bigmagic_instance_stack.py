@@ -100,11 +100,11 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
             construct_arn_task = sfn.Pass(
                 self, f"ConstructArn{db_name.replace('_', '').replace('-', '')}",
                 parameters={
-                    "group_step_function_arn.$": f"States.Format('arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:aje-{self.PROJECT_CONFIG.environment.value.lower()}-datalake-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{db_name.lower()}_{{}}-sf', $.process_id)",
+                    "group_step_function_arn.$": f"States.Format('arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{db_name.lower()}_{{}}-sf', $.process_id)",
                     "process_id.$": "$.process_id",
                     "database": db_name,
                     "instance": self.instance_name,
-                    "expected_step_function_name.$": f"States.Format('aje-{self.PROJECT_CONFIG.environment.value.lower()}-datalake-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{db_name.lower()}_{{}}-sf', $.process_id)"
+                    "expected_step_function_name.$": f"States.Format('{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{db_name.lower()}_{{}}-sf', $.process_id)"
                 },
                 result_path=f"$.{db_name.replace('-', '_').replace('.', '_')}_config"
             )
@@ -120,7 +120,7 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
             
             database_chain = construct_arn_task.next(invoke_database_task)
             parallel_branches.append(database_chain)
-        
+      
         if len(parallel_branches) > 1:
             parallel_state = sfn.Parallel(
                 self, "ParallelDatabaseProcessing",
@@ -205,8 +205,8 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
                                 "states:GetExecutionHistory"
                             ],
                             resources=[
-                                f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:aje-{self.PROJECT_CONFIG.environment.value.lower()}-datalake-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_*",
-                                f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:execution:aje-{self.PROJECT_CONFIG.environment.value.lower()}-datalake-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_*",
+                                f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_*",
+                                f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:execution:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_*",
                                 f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:CdkDatalakeIngestBigmagicGroupStack-*",
                                 f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:execution:CdkDatalakeIngestBigmagicGroupStack-*"
                             ]

@@ -70,7 +70,8 @@ with open('artifacts/configuration/csv/tables.csv', newline='', encoding='utf-8'
 db_names = []
 instance_groups = {}  # instance -> list of db_names
 current_env = project_config.environment.value.upper()  # Get current environment (DEV/PROD)
-print(f"current_env: {current_env}")
+#print(f"current_env: {current_env}")
+#print(f"shared_tables: {shared_tables}")
 with open('artifacts/configuration/csv/credentials.csv', newline='', encoding='utf-8') as creds_file:
     creds_reader = csv.DictReader(creds_file, delimiter=';')
     for row in creds_reader:
@@ -84,10 +85,7 @@ with open('artifacts/configuration/csv/credentials.csv', newline='', encoding='u
             if instance not in instance_groups:
                 instance_groups[instance] = []
             instance_groups[instance].append(db_name)
-
-print(f"db_names: {db_names}")
-print(f"instance_groups: {instance_groups}")
-
+ 
 def sanitize_stack_name(process_id, src_db_name):
     """Sanitize stack name to comply with AWS CloudFormation naming rules"""
     clean_process_id = str(process_id).replace(',', '-').replace('_', '-').replace(' ', '-')
@@ -99,7 +97,7 @@ def sanitize_stack_name(process_id, src_db_name):
 # Deploy individual stacks for each process_id and database combination
 deployed_stacks = {}  # Store stack references for dependency management
 
-print(f"all_process_ids: {all_process_ids}")
+#print(f"all_process_ids: {all_process_ids}")
 # First pass: create all stacks but don't populate registry yet
 for process_id in sorted(all_process_ids):  # Sort to ensure consistent order
     for db_name in db_names:
@@ -192,7 +190,8 @@ for process_id in sorted(all_process_ids):  # Sort to ensure consistent order
         # Store the stack reference
         deployed_stacks[stack_name] = group_stack
 
-print(f"instance_groups: {instance_groups}")
+#print(f"shared_job_registry: {shared_job_registry}")
+#print(f"instance_groups: {instance_groups}")
 # Second pass: create instance-level Step Functions for parallel processing
 for instance, instance_db_names in instance_groups.items():
     instance_stack_name = f"CdkDatalakeIngestInstanceStack-{instance}"
