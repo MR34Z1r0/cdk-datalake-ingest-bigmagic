@@ -16,7 +16,7 @@
   },
   "context": {
     "project_config": {
-      "enterprise": "aje",
+      "enterprise": "sofia",
       "project_name": "datalake",
       "project_description": "Datalake Ingest Bigmagic",
       "author": "Miguel Espinoza Alvarez",
@@ -32,8 +32,8 @@
             }              
           },
           "topic_notifications": {
-              "failed": "aje-dev-datalake-failed-sns",
-              "success": "aje-dev-datalake-success-sns"
+              "failed": "sofia-dev-datalake-failed-sns",
+              "success": "sofia-dev-datalake-success-sns"
           },
           "sns_notifications": [
             "miguel.espinoza@ajegroup.com",
@@ -47,20 +47,12 @@
             "analytics": "sofia-510543735161-us-east-1-dev-datalake-analytics-s3"
           },
           "dynamodb_tables":{
-            "configuration": "aje-dev-datalake-configuration-ddb",
-            "credentials": "aje-dev-datalake-credentials-ddb",
-            "columns-specifications": "aje-dev-datalake-columns-specifications-ddb",
-            "logs": "aje-dev-datalake-logs-ddb"
-          },
-          "glue_connection":{
-            "name": "bigmagic-vpc-connection",
-            "type": "NETWORK",
-            "vpc_id": "vpc-031ecad192b797a50",
-            "subnet_id": "subnet-02bc2c444d313fd28",
-            "security_group_ids": ["sg-0d6185d8f6fcdd237"],
-            "availability_zone": "us-east-2a"
-          },
-          "team": "athenea",
+            "configuration": "sofia-dev-datalake-configuration-ddb",
+            "credentials": "sofia-dev-datalake-credentials-ddb",
+            "columns-specifications": "sofia-dev-datalake-columns-specifications-ddb",
+            "logs": "sofia-dev-datalake-logs-ddb"
+          }, 
+          "team": "apdayc",
           "datasource": "bigmagic",
           "log_level": "DEBUG",
           "comment": "Process to ingest data from BigMagic to Datalake DEV environment"          
@@ -74,35 +66,27 @@
             }              
           },
           "topic_notifications": {
-              "failed": "aje-prod-datalake-failed-sns",
-              "success": "aje-prod-datalake-success-sns"
+              "failed": "sofia-prod-datalake-failed-sns",
+              "success": "sofia-prod-datalake-success-sns"
           },
           "sns_notifications": [
             "miguel.espinoza@ajegroup.com",
             "da.plataforma@ajegroup.com"
           ],
           "s3_buckets": {
-            "artifacts": "aje-prod-datalake-399723489351-us-east-2-artifacts-s3",
-            "landing": "aje-prod-datalake-399723489351-us-east-2-landing-s3",
-            "raw": "aje-prod-datalake-399723489351-us-east-2-raw-s3",
-            "stage": "aje-prod-datalake-399723489351-us-east-2-stage-s3",
-            "analytics": "aje-prod-datalake-399723489351-us-east-2-analytics-s3"
+            "artifacts": "sofia-prod-datalake-510543735161-us-west-2-artifacts-s3",
+            "landing": "sofia-prod-datalake-510543735161-us-west-2-landing-s3",
+            "raw": "sofia-prod-datalake-510543735161-us-west-2-raw-s3",
+            "stage": "sofia-prod-datalake-510543735161-us-west-2-stage-s3",
+            "analytics": "sofia-prod-datalake-510543735161-us-west-2-analytics-s3"
           },
           "dynamodb_tables":{
-            "configuration": "aje-prod-datalake-configuration-ddb",
-            "credentials": "aje-prod-datalake-credentials-ddb",
-            "columns-specifications": "aje-prod-datalake-columns-specifications-ddb",
-            "logs": "aje-prod-datalake-logs-ddb"
-          },
-          "glue_connection":{
-            "name": "bigmagic-vpc-connection",
-            "type": "NETWORK",
-            "vpc_id": "vpc-prod-placeholder",
-            "subnet_id": "subnet-prod-placeholder",
-            "security_group_ids": ["sg-prod-placeholder"],
-            "availability_zone": "us-east-2a"
-          },
-          "team": "aje",
+            "configuration": "sofia-prod-datalake-configuration-ddb",
+            "credentials": "sofia-prod-datalake-credentials-ddb",
+            "columns-specifications": "sofia-prod-datalake-columns-specifications-ddb",
+            "logs": "sofia-prod-datalake-logs-ddb"
+          }, 
+          "team": "sofia",
           "datasource": "bigmagic",
           "log_level": "DEBUG",
           "comment": "Process to ingest data from BigMagic to Datalake PROD environment"          
