@@ -1655,7 +1655,7 @@ processdate;-2;F;F;F;F;timestamp;T_DOCUMENTO_ACOBRAR;fn_transform_Datetime()
 processperiod;-3;F;F;F;T;string;T_DOCUMENTO_ACOBRAR;fn_transform_Date_to_String(fn_transform_DateMagic(fecha,yyyy-MM-dd,1900-01-01),yyyyMM)
 saldo_pendiente;20;F;F;F;F;double;T_DOCUMENTO_ACOBRAR;sdodoc
 total_venta;19;F;F;F;F;double;T_DOCUMENTO_ACOBRAR;importe
-ubicación;22;F;F;F;F;string;T_DOCUMENTO_ACOBRAR;fn_transform_ClearString(ubicacion)
+ubicaciï¿½n;22;F;F;F;F;string;T_DOCUMENTO_ACOBRAR;fn_transform_ClearString(ubicacion)
 usuario_creacion;32;F;F;F;F;string;T_DOCUMENTO_ACOBRAR;fn_transform_ClearString(usucrea)
 usuario_modificacion;34;F;F;F;F;string;T_DOCUMENTO_ACOBRAR;fn_transform_ClearString(ultusumod)
 valor_venta;17;F;F;F;F;double;T_DOCUMENTO_ACOBRAR;valorventa
@@ -1772,6 +1772,7 @@ precio_licencia;10;F;F;F;F;double;M_LICENCIA_DETALLE;preciotarifa
 processdate;-2;F;F;F;F;timestamp;M_LICENCIA_DETALLE;fn_transform_Datetime()
 total_licencia;12;F;F;F;F;double;M_LICENCIA_DETALLE;totaltarifa
 usuario_creacion;20;F;F;F;F;string;M_LICENCIA_DETALLE;fn_transform_ClearString(usucrea)
+tipo_pago;20;F;F;F;F;string;M_LICENCIA_DETALLE;fn_transform_ClearString(tadepag)
 usuario_modificacion;22;F;F;F;F;string;M_LICENCIA_DETALLE;fn_transform_ClearString(ultusumod)
 cantidad_botellas_aten;32;F;F;F;F;string;T_DOCUMENTO_PEDIDO_ADES_DESPACHO;qbotaten
 cantidad_botellas_pedido;30;F;F;F;F;string;T_DOCUMENTO_PEDIDO_ADES_DESPACHO;qbotpedid
