@@ -103,10 +103,8 @@ class DataExtractor:
     def _load_csv_configurations(self):
         """Load configuration from CSV files in S3"""
         try:
-            import boto3
             import csv
             from io import StringIO
-            
             def load_csv_from_s3(s3_path):
                 """Load CSV file from S3 and return as list of dictionaries"""
                 s3_client = boto3.client('s3')
@@ -114,7 +112,7 @@ class DataExtractor:
                 key = '/'.join(s3_path.split('/')[3:])
                 
                 response = s3_client.get_object(Bucket=bucket, Key=key)
-                content = response['Body'].read().decode('utf-8')
+                content = response['Body'].read().decode('latin-1')
                 
                 csv_data = []
                 reader = csv.DictReader(StringIO(content), delimiter=';')
@@ -127,15 +125,18 @@ class DataExtractor:
                 import csv
                 """Carga un archivo CSV local y lo devuelve como lista de diccionarios"""
                 csv_data = []
-                with open(file_path, mode='r', encoding='utf-8') as file:
+                with open(file_path, mode='r', encoding='latin-1') as file:
                     reader = csv.DictReader(file, delimiter=';')
                     for row in reader:
                         csv_data.append(row)
                 return csv_data
             
             # Load CSV data
+            self.logger.info(f"TABLES_CSV_S3: {self.config['TABLES_CSV_S3']}")
             tables_data = load_csv_from_s3(self.config['TABLES_CSV_S3']) if IS_AWS_S3 else load_csv_from_local(self.config['TABLES_CSV_S3'])
+            self.logger.info(f"CREDENTIALS_CSV_S3: {self.config['CREDENTIALS_CSV_S3']}")
             credentials_data = load_csv_from_s3(self.config['CREDENTIALS_CSV_S3']) if IS_AWS_S3 else load_csv_from_local(self.config['CREDENTIALS_CSV_S3'])
+            self.logger.info(f"COLUMNS_CSV_S3: {self.config['COLUMNS_CSV_S3']}")
             columns_data = load_csv_from_s3(self.config['COLUMNS_CSV_S3']) if IS_AWS_S3 else load_csv_from_local(self.config['COLUMNS_CSV_S3'])
             
             # Filter data for current table and database
@@ -1253,30 +1254,38 @@ if IS_AWS_GLUE:
     }
 else: 
     config = {
-                '--S3_RAW_PREFIX': "s3://sofia-dev-datalake-510543735161-us-east-1-raw-s3/",
-                '--ARN_TOPIC_FAILED': "arn:aws:sns:us-east-1:510543735161:sofia-dev-datalake-failed-sns",
-                '--ARN_TOPIC_SUCCESS': "arn:aws:sns:us-east-1:510543735161:sofia-dev-datalake-success-sns",
-                '--PROJECT_NAME': "datalake",
-                '--TEAM': "apdayc",
-                '--DATA_SOURCE': "bigmagic",
-                '--ENVIRONMENT': "DEV",
-                '--REGION': "us-east-1",
-                '--TABLE_NAME': "NONE",
-                '--DYNAMO_LOGS_TABLE': "sofia-dev-datalake-logs-ddb",
-                '--SRC_DB_NAME': "PEBDDATA2",
+                'S3_RAW_PREFIX': "s3://sofia-dev-datalake-510543735161-us-east-1-raw-s3/",
+                'ARN_TOPIC_FAILED': "arn:aws:sns:us-east-1:510543735161:sofia-dev-datalake-failed-sns",
+                'ARN_TOPIC_SUCCESS': "arn:aws:sns:us-east-1:510543735161:sofia-dev-datalake-success-sns",
+                'PROJECT_NAME': "datalake",
+                'TEAM': "apdayc",
+                'DATA_SOURCE': "bigmagic",
+                'ENVIRONMENT': "DEV",
+                'REGION': "us-east-1",
+                'DYNAMO_LOGS_TABLE': "sofia-dev-datalake-logs-ddb",
+                'SRC_DB_NAME': "PEBDDATA2",
                 # Configuration parameters - pass CSV paths instead of large JSON to avoid template size limits
-                '--TABLES_CSV_S3': "../../artifacts/configuration/csv/tables.csv",
-                '--CREDENTIALS_CSV_S3': "../../artifacts/configuration/csv/credentials.csv",
-                '--COLUMNS_CSV_S3': "../../artifacts/configuration/csv/columns.csv",
+                'TABLES_CSV_S3': "../../artifacts/configuration/csv/tables.csv",
+                'CREDENTIALS_CSV_S3': "../../artifacts/configuration/csv/credentials.csv",
+                'COLUMNS_CSV_S3': "../../artifacts/configuration/csv/columns.csv",
             }
+    # Parse command line arguments
+    parser = argparse.ArgumentParser(description='Extract data from source and load to S3')
+    parser.add_argument("-t", '--TABLE_NAME', required=True, help='Target table name')
+    args = parser.parse_args()
+    # Update config with table name from arguments
+    config["TABLE_NAME"] = args.TABLE_NAME
+
+region_name = config["REGION"]
+boto3.setup_default_session(profile_name='prod-compliance-admin', region_name=region_name)
 
 logger = custom_logger(__name__)
 
 logger.info("=" * 80)
 
 logger.info("Version: SQL Server Identifier Parsing Fix v2.0")
-logger.info(f"Table: {args['TABLE_NAME']}")
-logger.info(f"Database: {args['SRC_DB_NAME']}")
+logger.info(f"Table: {config['TABLE_NAME']}")
+logger.info(f"Database: {config['SRC_DB_NAME']}")
 logger.info("=" * 80)
 
 logger.info("Starting data extraction process")

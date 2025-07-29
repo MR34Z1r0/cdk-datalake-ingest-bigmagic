@@ -101,10 +101,8 @@ class DataExtractor:
     def _load_csv_configurations(self):
         """Load configuration from CSV files in S3"""
         try:
-            import boto3
             import csv
             from io import StringIO
-            
             def load_csv_from_s3(s3_path):
                 """Load CSV file from S3 and return as list of dictionaries"""
                 s3_client = boto3.client('s3')
@@ -112,7 +110,7 @@ class DataExtractor:
                 key = '/'.join(s3_path.split('/')[3:])
                 
                 response = s3_client.get_object(Bucket=bucket, Key=key)
-                content = response['Body'].read().decode('utf-8')
+                content = response['Body'].read().decode('latin-1')
                 
                 csv_data = []
                 reader = csv.DictReader(StringIO(content), delimiter=';')
@@ -122,8 +120,11 @@ class DataExtractor:
                 return csv_data
             
             # Load CSV data
+            self.logger.info(f"TABLES_CSV_S3: {self.config['TABLES_CSV_S3']}")
             tables_data = load_csv_from_s3(self.config['TABLES_CSV_S3'])
+            self.logger.info(f"CREDENTIALS_CSV_S3: {self.config['CREDENTIALS_CSV_S3']}")
             credentials_data = load_csv_from_s3(self.config['CREDENTIALS_CSV_S3'])
+            self.logger.info(f"COLUMNS_CSV_S3: {self.config['COLUMNS_CSV_S3']}")
             columns_data = load_csv_from_s3(self.config['COLUMNS_CSV_S3'])
             
             # Filter data for current table and database
@@ -1217,6 +1218,7 @@ class DataExtractor:
             self._log_error(error_msg)
             raise Exception(f"Failed to extract data: {error_msg}")
 
+config = {}
 from awsglue.utils import getResolvedOptions    
 args = getResolvedOptions(
     sys.argv, ['S3_RAW_PREFIX', 'ARN_TOPIC_SUCCESS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'ENVIRONMENT', 'REGION', 'DYNAMO_LOGS_TABLE', 'ARN_TOPIC_FAILED', 'TABLE_NAME', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'SRC_DB_NAME'])
@@ -1237,14 +1239,16 @@ config = {
     "COLUMNS_CSV_S3": args["COLUMNS_CSV_S3"],
     "SRC_DB_NAME": args["SRC_DB_NAME"],
 }
+region_name = config["REGION"]
+boto3.setup_default_session(profile_name='prod-compliance-admin', region_name=region_name)
 
 logger = custom_logger(__name__)
 
 logger.info("=" * 80)
 
 logger.info("Version: SQL Server Identifier Parsing Fix v2.0")
-logger.info(f"Table: {args['TABLE_NAME']}")
-logger.info(f"Database: {args['SRC_DB_NAME']}")
+logger.info(f"Table: {config['TABLE_NAME']}")
+logger.info(f"Database: {config['SRC_DB_NAME']}")
 logger.info("=" * 80)
 
 logger.info("Starting data extraction process")
