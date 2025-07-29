@@ -15,6 +15,8 @@ import io
 import gzip
 from dateutil.relativedelta import relativedelta
 
+IS_AWS_GLUE = False
+IS_AWS_S3 = False
 
 # Try to import PyArrow for Parquet support
 try:
@@ -121,10 +123,20 @@ class DataExtractor:
                 
                 return csv_data
             
+            def load_csv_from_local(file_path):
+                import csv
+                """Carga un archivo CSV local y lo devuelve como lista de diccionarios"""
+                csv_data = []
+                with open(file_path, mode='r', encoding='utf-8') as file:
+                    reader = csv.DictReader(file, delimiter=';')
+                    for row in reader:
+                        csv_data.append(row)
+                return csv_data
+            
             # Load CSV data
-            tables_data = load_csv_from_s3(self.config['TABLES_CSV_S3'])
-            credentials_data = load_csv_from_s3(self.config['CREDENTIALS_CSV_S3'])
-            columns_data = load_csv_from_s3(self.config['COLUMNS_CSV_S3'])
+            tables_data = load_csv_from_s3(self.config['TABLES_CSV_S3']) if IS_AWS_S3 else load_csv_from_local(self.config['TABLES_CSV_S3'])
+            credentials_data = load_csv_from_s3(self.config['CREDENTIALS_CSV_S3']) if IS_AWS_S3 else load_csv_from_local(self.config['CREDENTIALS_CSV_S3'])
+            columns_data = load_csv_from_s3(self.config['COLUMNS_CSV_S3']) if IS_AWS_S3 else load_csv_from_local(self.config['COLUMNS_CSV_S3'])
             
             # Filter data for current table and database
             table_name = self.config.get('TABLE_NAME')
@@ -1217,26 +1229,46 @@ class DataExtractor:
             self._log_error(error_msg)
             raise Exception(f"Failed to extract data: {error_msg}")
 
-from awsglue.utils import getResolvedOptions    
-args = getResolvedOptions(
-    sys.argv, ['S3_RAW_PREFIX', 'ARN_TOPIC_SUCCESS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'ENVIRONMENT', 'REGION', 'DYNAMO_LOGS_TABLE', 'ARN_TOPIC_FAILED', 'TABLE_NAME', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'SRC_DB_NAME'])
+config = {}
+if IS_AWS_GLUE:
+    from awsglue.utils import getResolvedOptions    
+    args = getResolvedOptions(
+        sys.argv, ['S3_RAW_PREFIX', 'ARN_TOPIC_SUCCESS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'ENVIRONMENT', 'REGION', 'DYNAMO_LOGS_TABLE', 'ARN_TOPIC_FAILED', 'TABLE_NAME', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'SRC_DB_NAME'])
 
-config = {
-    "S3_RAW_PREFIX": args["S3_RAW_PREFIX"],
-    "DYNAMO_LOGS_TABLE": args["DYNAMO_LOGS_TABLE"],
-    "ENVIRONMENT": args["ENVIRONMENT"],
-    "PROJECT_NAME": args["PROJECT_NAME"],
-    "TEAM": args["TEAM"],
-    "DATA_SOURCE": args["DATA_SOURCE"],
-    "THREADS_FOR_INCREMENTAL_LOADS": 6,
-    "TOPIC_ARN": args["ARN_TOPIC_FAILED"], 
-    "REGION": args["REGION"],
-    "TABLE_NAME": args["TABLE_NAME"],
-    "TABLES_CSV_S3": args["TABLES_CSV_S3"],
-    "CREDENTIALS_CSV_S3": args["CREDENTIALS_CSV_S3"],
-    "COLUMNS_CSV_S3": args["COLUMNS_CSV_S3"],
-    "SRC_DB_NAME": args["SRC_DB_NAME"],
-}
+    config = {
+        "S3_RAW_PREFIX": args["S3_RAW_PREFIX"],
+        "DYNAMO_LOGS_TABLE": args["DYNAMO_LOGS_TABLE"],
+        "ENVIRONMENT": args["ENVIRONMENT"],
+        "PROJECT_NAME": args["PROJECT_NAME"],
+        "TEAM": args["TEAM"],
+        "DATA_SOURCE": args["DATA_SOURCE"],
+        "THREADS_FOR_INCREMENTAL_LOADS": 6,
+        "TOPIC_ARN": args["ARN_TOPIC_FAILED"], 
+        "REGION": args["REGION"],
+        "TABLE_NAME": args["TABLE_NAME"],
+        "TABLES_CSV_S3": args["TABLES_CSV_S3"],
+        "CREDENTIALS_CSV_S3": args["CREDENTIALS_CSV_S3"],
+        "COLUMNS_CSV_S3": args["COLUMNS_CSV_S3"],
+        "SRC_DB_NAME": args["SRC_DB_NAME"]
+    }
+else: 
+    config = {
+                '--S3_RAW_PREFIX': "s3://sofia-dev-datalake-510543735161-us-east-1-raw-s3/",
+                '--ARN_TOPIC_FAILED': "arn:aws:sns:us-east-1:510543735161:sofia-dev-datalake-failed-sns",
+                '--ARN_TOPIC_SUCCESS': "arn:aws:sns:us-east-1:510543735161:sofia-dev-datalake-success-sns",
+                '--PROJECT_NAME': "datalake",
+                '--TEAM': "apdayc",
+                '--DATA_SOURCE': "bigmagic",
+                '--ENVIRONMENT': "DEV",
+                '--REGION': "us-east-1",
+                '--TABLE_NAME': "NONE",
+                '--DYNAMO_LOGS_TABLE': "sofia-dev-datalake-logs-ddb",
+                '--SRC_DB_NAME': "PEBDDATA2",
+                # Configuration parameters - pass CSV paths instead of large JSON to avoid template size limits
+                '--TABLES_CSV_S3': "../../artifacts/configuration/csv/tables.csv",
+                '--CREDENTIALS_CSV_S3': "../../artifacts/configuration/csv/credentials.csv",
+                '--COLUMNS_CSV_S3': "../../artifacts/configuration/csv/columns.csv",
+            }
 
 logger = custom_logger(__name__)
 

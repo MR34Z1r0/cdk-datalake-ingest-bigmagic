@@ -1,0 +1,2072 @@
+Table I_RELACION_CONSUMO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_relacion_consumo varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_ocasion_consumo varchar
+  id_canal varchar [ref: > M_CANAL.id_canal]
+  id_giro varchar [ref: > M_GIRO.id_giro]
+  id_subgiro varchar [ref: > M_SUBGIRO.id_subgiro]
+  cod_compania varchar
+  cod_ocasion_consumo varchar
+  cod_canal varchar
+  cod_giro varchar
+  cod_subgiro varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table I_RELACION_PROCED_VENTA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_relacion_proced_venta varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_documento_pedido varchar
+  cod_tipo_pedido varchar
+  cod_procedimiento_pedido varchar
+  cod_documento_venta varchar
+  cod_procedimiento_venta varchar
+  cod_operacion_venta varchar
+  estado varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_ALMACEN {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_almacen varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  cod_compania varchar
+  cod_almacen varchar
+  cod_sucursal varchar
+  tipo_articulo varchar
+  desc_almacen varchar
+  es_activo varchar
+  flg_valoriza varchar
+  tipo_almacen varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_AROMA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_aroma varchar
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_aroma varchar
+  desc_aroma varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_ARTICULO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_articulo varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_linea varchar [ref: > M_LINEA.id_linea]
+  id_familia varchar [ref: > M_FAMILIA.id_familia]
+  id_subfamilia varchar [ref: > M_SUBFAMILIA.id_subfamilia]
+  id_marca varchar [ref: > M_MARCA.id_marca]
+  id_presentacion varchar [ref: > M_PRESENTACION.id_presentacion]
+  id_formato varchar [ref: > M_FORMATO.id_formato]
+  id_sabor varchar [ref: > M_SABOR.id_sabor]
+  id_categoria varchar [ref: > M_CATEGORIA.id_categoria]
+  id_gasificado varchar [ref: > M_GASIFICADO.id_gasificado]
+  id_light varchar [ref: > M_LIGHT.id_light]
+  id_tipo_envase varchar [ref: > M_TIPO_ENVASE.id_tipo_envase]
+  id_grupo varchar
+  cod_compania varchar
+  cod_articulo varchar
+  cod_articulo_corp varchar
+  cod_articulo_relacionado varchar
+  cod_linea varchar
+  cod_familia varchar
+  cod_subfamilia varchar
+  cod_marca varchar
+  cod_presentacion varchar
+  cod_formato varchar
+  cod_sabor varchar
+  cod_categoria varchar
+  cod_gasificado varchar
+  cod_light varchar
+  cod_tipo_envase varchar
+  cod_aroma varchar
+  desc_articulo varchar
+  desc_articulo_corp varchar
+  cod_grupo varchar
+  unidad_manejo varchar
+  unidad_compra varchar
+  unidad_peso varchar
+  unidad_volumen varchar
+  es_activo varchar
+  es_explosion varchar
+  es_jarabe varchar
+  es_co2 varchar
+  es_azucar varchar
+  es_jarabe_conver varchar
+  qalto varchar
+  qlargo varchar
+  cod_unidad_negocio varchar
+  cant_volumen varchar
+  flgskuplan varchar
+  cant_unidad_paquete float
+  cant_unidad_volumen float
+  cant_unidad_peso float
+  cant_paquete_caja float
+  cant_cajas_por_palet float
+  desc_articulo_corto varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_ASIGNACION_MODULO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_asignacion_modulo varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  id_fuerza_venta varchar [ref: > M_FUERZA_VENTA.id_fuerza_venta]
+  id_modulo varchar [ref: > M_MODULO.id_modulo]
+  cod_compania varchar
+  cod_cliente varchar
+  cod_modulo varchar
+  orden_visita varchar
+  tipo_modulo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+  cod_sucursal varchar
+  coord_x varchar
+  coord_y varchar
+  cod_fuerza_venta varchar
+  cod_direccion varchar
+}
+
+Table M_CANAL {
+  processdate timestamp
+  id_canal varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_canal varchar
+  desc_canal varchar
+  es_activo varchar
+}
+
+Table M_CANAL_LOCAL {
+  processdate timestamp
+  id_canal_local varchar
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_canal_local varchar
+  desc_canal_local varchar
+  estado varchar
+}
+
+Table M_CAPACIDAD_VEHICULO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_capacidad_vehiculo varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_tipo_capacidad_vehiculo varchar
+  desc_tipo_vehiculo varchar
+  ststiveh varchar
+  pesoxcamion varchar
+  tarimasxcamion varchar
+  config_vehiculo varchar
+  imagen varchar
+  limcapfle varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_CATEGORIA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_categoria varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_categoria varchar
+  desc_categoria varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_CLIENTE {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_cliente varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_canal varchar [ref: > M_CANAL.id_canal]
+  id_subgiro varchar [ref: > M_SUBGIRO.id_subgiro]
+  id_segmento varchar
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_cliente varchar
+  cod_cuenta_clave varchar
+  cod_lista_precio varchar
+  cod_canal varchar
+  cod_giro varchar
+  cod_subgiro varchar
+  cod_cliente_principal varchar
+  cod_segmento varchar
+  cod_zona_postal varchar
+  es_activo varchar
+  nomb_cliente varchar
+  tipo_documento_identidad varchar
+  nro_documento_identidad varchar
+  direccion varchar
+  telefono varchar
+  fecha_inactivo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+  flg_oportunidad varchar
+  cod_ext_cliente varchar
+}
+
+Table M_COMPANIA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_compania varchar [pk]
+  id_pais varchar [ref: > M_PAIS.id_pais]
+  cod_compania varchar
+  cod_pais varchar
+  cod_ng1 varchar
+  cod_ng2 varchar
+  direccion varchar
+  desc_compania varchar
+  flg_tipo_compania varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_CUENTA_CLAVE {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_cuenta_clave varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_cuenta_clave varchar
+  descripcion varchar
+  estado_grupo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_DIVISION {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_division varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_jefe_venta varchar
+  cod_compania varchar
+  cod_division varchar
+  desc_division varchar
+  cod_jefe_venta varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_DOCUMENTO_ALMACEN {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_almacen varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_transaccion varchar
+  desc_documento_almacen varchar
+  cod_tipo_documento varchar
+  cod_documento_solicitud varchar
+  cod_operacion_origen varchar
+  cod_operacion_destino varchar
+  flg_maneja_motivo varchar
+  flg_transferencia varchar
+  flg_transportista varchar
+  cod_transaccion_complementaria varchar
+  flg_validacion_ref varchar
+  flg_validacion_ref2 varchar
+  flg_validacion_destino varchar
+  usuario_creacion varchar
+  fecha_creacion timestamp
+  usuario_modificacion varchar
+  fecha_modificacion timestamp
+}
+
+Table M_DOCUMENTO_TRANSACCION {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_transaccion varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_documento_transaccion varchar
+  desc_documento_transaccion varchar
+  cod_tipo_documento varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_EMPLEADO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_empleado varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_empleado varchar
+  nombres varchar
+  sexo varchar
+  estado_civil varchar
+  tipo_documento varchar
+  nro_documento varchar
+  estado varchar
+  fecha_nacimiento varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_FAMILIA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_familia varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_familia varchar
+  cod_linea varchar
+  desc_familia varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_FORMATO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_formato varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_formato varchar
+  desc_formato varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_FORMA_PAGO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_forma_pago varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_forma_pago varchar
+  desc_forma_pago varchar
+  es_activo varchar
+  tiempo float
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_FUERZA_VENTA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_fuerza_venta varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_fuerza_venta varchar
+  desc_fuerza_venta varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_GASIFICADO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_gasificado varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_gasificado varchar
+  desc_gasificado varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_GIRO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_giro varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_giro varchar
+  desc_giro varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_GIRO_LOCAL {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_giro_local varchar
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_giro_local varchar
+  desc_giro_local varchar
+  estado varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_LICENCIA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_licencia varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  cod_compania varchar
+  cod_licencia varchar
+  cod_cliente varchar
+  cod_establecimiento varchar
+  desc_licencia varchar
+  tipo_licencia varchar
+  cod_articulo varchar
+  estado_licencia varchar
+  cod_ext_licencia varchar
+  cod_persona varchar
+  cod_direccion varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_LICENCIA_DETALLE {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_licencia_detalle varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_licencia varchar [ref: > M_LICENCIA.id_licencia]
+  cod_compania varchar
+  cod_licencia varchar
+  cod_licencia_secuencia varchar
+  fecha_inicio_licencia varchar
+  fecha_final_licencia varchar
+  cod_tarifa varchar
+  precio_licencia float
+  descuento_licencia float
+  total_licencia float
+  flg_requiere_show varchar
+  estado_licencia_detalle varchar
+  cod_sucursal varchar
+  cod_almacen varchar
+  cod_documento_pedido varchar
+  nro_documento_pedido varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+  cod_vendedor varchar
+  cod_cobrador varchar
+}
+
+Table M_LIGHT {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_light varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_light varchar
+  desc_light varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_LINEA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_linea varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_linea varchar
+  desc_linea varchar
+  flg_linea varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_LISTA_PRECIO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_lista_precio varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_lista_precio varchar
+  desc_lista_precio varchar
+  cod_canal varchar
+  es_activo varchar
+  flg_lista_base varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_MARCA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_marca varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_marca varchar
+  desc_marca varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_MODELO_ATENCION {
+  processdate timestamp
+  id_modelo_atencion varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_modelo_atencion varchar
+  desc_modelo_atencion varchar
+  estado varchar
+}
+
+Table M_MODULO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_modulo varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_fuerza_venta varchar [ref: > M_FUERZA_VENTA.id_fuerza_venta]
+  id_ruta varchar [ref: > M_RUTA.id_ruta]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_fuerza_venta varchar
+  cod_modulo varchar
+  cod_ruta varchar
+  desc_modulo varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_MONEDA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_moneda varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_moneda varchar
+  descripcion varchar
+  simbolo varchar
+  estado varchar
+  flg_procedencia varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_NG1 {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_ng1 varchar [pk]
+  id_pais varchar [ref: > M_PAIS.id_pais]
+  cod_pais varchar
+  cod_ng1 varchar
+  desc_ng1 varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_NG2 {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_ng2 varchar [pk]
+  id_ng1 varchar [ref: > M_NG1.id_ng1]
+  id_pais varchar [ref: > M_PAIS.id_pais]
+  cod_pais varchar
+  cod_ng1 varchar
+  cod_ng2 varchar
+  desc_ng2 varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_NG3 {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_ng3 varchar [pk]
+  id_ng1 varchar [ref: > M_NG1.id_ng1]
+  id_ng2 varchar [ref: > M_NG2.id_ng2]
+  id_pais varchar [ref: > M_PAIS.id_pais]
+  cod_pais varchar
+  cod_ng1 varchar
+  cod_ng2 varchar
+  cod_ng3 varchar
+  desc_ng3 varchar
+  cod_zona_postal varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_OCASION {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_ocasion_consumo varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_ocasion_consumo varchar
+  desc_ocasion_consumo varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_OPERACION {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_operacion varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_documento_transaccion varchar [ref: > M_DOCUMENTO_TRANSACCION.id_documento_transaccion]
+  id_procedimiento varchar [ref: > M_PROCEDIMIENTO.id_procedimiento]
+  id_tipo_operacion varchar [ref: > M_TIPO_OPERACION.id_tipo_operacion]
+  cod_compania varchar
+  cod_documento_transaccion varchar
+  cod_procedimiento varchar
+  cod_operacion varchar
+  desc_operacion varchar
+  desc_operacion_corto varchar
+  es_activo varchar
+  cod_tipo_operacion varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_ORIGEN_PEDIDO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_origen_pedido varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_origen_pedido varchar
+  desc_origen_pedido varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_PAIS {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_pais varchar [pk]
+  cod_pais varchar
+  desc_pais_comercial varchar
+  desc_pais varchar
+  continente varchar
+  cod_iso varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_PARAMETRO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_parametro varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_moneda_mn varchar
+  cod_moneda_me varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_PERSONA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_persona varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_persona varchar
+  nomb_persona varchar
+  nombre varchar
+  apellido_paterno varchar
+  apellido_materno varchar
+  nro_documento varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_PERSONA_DIRECCION {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_persona_direccion varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_persona varchar
+  cod_persona_direccion varchar
+  cod_direccion_clasificacion varchar
+  desc_direccion_clasificacion varchar
+  cod_tipo_direccion varchar
+  desc_tipo_direccion varchar
+  nro_direccion varchar
+  manzana varchar
+  lote varchar
+  interior varchar
+  cod_zona_postal varchar
+  referencia_domicilio varchar
+  telefono varchar
+  flg_cobranza varchar
+  flg_domicilio varchar
+  flg_trabajo_curso varchar
+  flg_entrega varchar
+  flg_otros varchar
+  condicion varchar
+  unidad_tiempo varchar
+  fecha_vencimiento_contrato varchar
+  estado_direccion varchar
+  cod_provincia varchar
+  localidad varchar
+  estado varchar
+  direccion_proveedor1 varchar
+  referencia_direccion1 varchar
+  direccion_proveedor2 varchar
+  cod_pais varchar
+  flg_direccion_fiscal varchar
+  flg_establecimiento varchar
+  cod_establecimiento varchar
+  nom_establecimiento varchar
+  cod_tipo_establecimiento varchar
+  desc_tipo_establecimiento varchar
+  cod_coordx varchar
+  cod_coordy varchar
+  cod_establecimiento_padre varchar
+  cod_externo_establecimiento varchar
+  desc_direccion varchar
+  desc_establecimiento varchar
+  flg_oportunidad varchar
+  desc_area_establecimiento varchar
+  aforo_area_establecimiento varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_PRESENTACION {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_presentacion varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_presentacion varchar
+  desc_presentacion varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_PROCEDIMIENTO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_procedimiento varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_documento_transaccion varchar [ref: > M_DOCUMENTO_TRANSACCION.id_documento_transaccion]
+  id_tipo_operacion varchar [ref: > M_TIPO_OPERACION.id_tipo_operacion]
+  cod_compania varchar
+  cod_procedimiento varchar
+  cod_documento_transaccion varchar
+  desc_procedimiento varchar
+  desc_procedimiento_corto varchar
+  es_activo varchar
+  cod_tipo_operacion varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_REGION {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_region varchar [pk]
+  id_pais varchar [ref: > M_PAIS.id_pais]
+  cod_pais varchar
+  cod_region varchar
+  desc_region varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_RUTA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_ruta varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_fuerza_venta varchar [ref: > M_FUERZA_VENTA.id_fuerza_venta]
+  id_zona varchar [ref: > M_ZONA.id_zona]
+  id_vendedor varchar [ref: > M_VENDEDOR.id_vendedor]
+  id_modelo_atencion varchar [ref: > M_MODELO_ATENCION.id_modelo_atencion]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_fuerza_venta varchar
+  cod_ruta varchar
+  cod_zona varchar
+  cod_vendedor varchar
+  cod_modelo_atencion varchar
+  es_activo varchar
+  desc_ruta varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_SABOR {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_sabor varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_sabor varchar
+  desc_sabor varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_SUBFAMILIA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_subfamilia varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_linea varchar [ref: > M_LINEA.id_linea]
+  id_familia varchar [ref: > M_FAMILIA.id_familia]
+  cod_compania varchar
+  cod_familia varchar
+  cod_subfamilia varchar
+  cod_linea varchar
+  desc_subfamilia varchar
+  desc_subfamilia_corto varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_SUBGIRO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_subgiro varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_subgiro varchar
+  desc_subgiro varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_SUBREGION {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_subregion varchar [pk]
+  id_pais varchar [ref: > M_PAIS.id_pais]
+  id_region varchar [ref: > M_REGION.id_region]
+  cod_pais varchar
+  cod_region varchar
+  cod_subregion varchar
+  desc_subregion varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_SUCURSAL {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_sucursal varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_sucursal varchar
+  desc_sucursal varchar
+  cod_zona_postal varchar
+  flg_platana varchar
+  flg_comercial varchar
+  es_activo varchar
+  cod_tipo_sucursal varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_TIPO_CAMBIO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_tipo_cambio varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_moneda varchar [ref: > M_MONEDA.id_moneda]
+  cod_compania varchar
+  cod_moneda varchar
+  fecha varchar
+  tc_compra float
+  tc_venta float
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_TIPO_CLIENTE {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_tipo_cliente varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  cod_compania varchar
+  cod_cliente varchar
+  tipo_cliente varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_TIPO_DOCUMENTO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_tipo_documento varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_tipo_documento varchar
+  desc_tipo_documento varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_TIPO_ENVASE {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_tipo_envase varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_tipo_envase varchar
+  desc_tipo_envase varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_TIPO_ESTABLECIMIENTO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_tipoestablecimiento varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  tipo_establecimiento varchar
+  desc_tipoestablecimiento varchar
+  orig_tipoestablecimiento varchar
+  cod_externo_tipoestablecimiento varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_TIPO_OPERACION {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_tipo_operacion varchar [pk]
+  cod_tipo_operacion varchar
+  desc_tipo_operacion varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_TIPO_TRANSACCION {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_tipo_transaccion varchar [pk]
+  id_documento_transaccion varchar [ref: > M_DOCUMENTO_TRANSACCION.id_documento_transaccion]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_tipo_transaccion varchar
+  cod_documento_transaccion varchar
+  es_activo varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_TIPO_TRANSPORTISTA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_tipo_transportista varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_tipo_transportista varchar
+  descripcion1 varchar
+  estado varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_TIPO_VEHICULO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_tipo_vehiculo varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  cod_compania varchar
+  cod_tipo_vehiculo varchar
+  descripcion varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_TRANSPORTISTA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_transportista varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_transportista varchar
+  cod_tipo_transportista varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_VEHICULO {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_vehiculo varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_medio_transporte varchar
+  cod_compania varchar
+  cod_vehiculo varchar
+  cod_tipo_vehiculo varchar
+  cod_transportista varchar
+  marca varchar
+  capacidad_max_kg float
+  flgcartec varchar
+  estado varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+  id_tipo_vehiculo varchar [ref: > M_TIPO_VEHICULO.id_tipo_vehiculo]
+}
+
+Table M_VENDEDOR {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_vendedor varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_fuerza_venta varchar [ref: > M_FUERZA_VENTA.id_fuerza_venta]
+  cod_compania varchar
+  cod_vendedor varchar
+  cod_sucursal varchar
+  cod_tipo_vendedor varchar
+  cod_fuerza_venta varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table M_ZONA {
+  processdate timestamp
+  lastmodifydate timestamp
+  id_zona varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_pais varchar [ref: > M_PAIS.id_pais]
+  id_region varchar [ref: > M_REGION.id_region]
+  id_subregion varchar [ref: > M_SUBREGION.id_subregion]
+  id_centro_distribucion varchar
+  id_supervisor varchar
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_zona varchar
+  cod_centro_distribucion varchar
+  cod_supervisor varchar
+  desc_zona varchar
+  es_activo varchar
+  cod_region varchar
+  cod_subregion varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table T_CIERRE_INVENTARIO_CPM {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_cierre_inventario varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_periodo varchar
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  id_linea varchar [ref: > M_LINEA.id_linea]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_ejercicio varchar
+  cod_periodo varchar
+  cod_articulo varchar
+  cod_linea varchar
+  cant_saldo_inicial float
+  imp_saldo_inicial float
+  cant_ingreso float
+  imp_ingreso float
+  cant_salida float
+  imp_salida float
+  cant_saldo_final float
+  imp_saldo_final float
+  imp_cpm float
+  imp_cstd float
+  usuario_creacion varchar
+  fecha_creacion timestamp
+  usuario_modificacion varchar
+  fecha_modificacion timestamp
+}
+
+Table T_DOCUMENTO_ACOBRAR {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_acobrar varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_transaccion varchar
+  nro_serie varchar
+  nro_preimpreso varchar
+  nro_interno varchar
+  cod_cliente varchar
+  fecha varchar
+  fecha_vcmto varchar
+  cod_motivo varchar
+  cod_moneda varchar
+  base_gravada float
+  base_no_gravada float
+  valor_venta float
+  impuesto_venta float
+  total_venta float
+  saldo_pendiente float
+  condicion_pago varchar
+  ubicación varchar
+  cod_banco varchar
+  cta_banco varchar
+  envio_banco varchar
+  fecha_envio varchar
+  flg_cancelacion varchar
+  fecha_cancelacion varchar
+  flg_anulado varchar
+  estado_acobrar varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table T_DOCUMENTO_ACOBRAR_ABONO {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_acobrar_abono varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  id_documento_acobrar varchar [ref: > T_DOCUMENTO_ACOBRAR.id_documento_acobrar]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_transaccion varchar
+  nro_serie varchar
+  nro_preimpreso varchar
+  nro_registro varchar
+  cod_cliente varchar
+  fecha varchar
+  fecha_vencimiento varchar
+  importe float
+  saldo float
+  importe_pagado float
+  cod_moneda varchar
+  fecha_pagado varchar
+  estado_acobrar_abono varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+  cod_cobrador varchar
+  fecha_confirmacion varchar
+  cod_ext_abono varchar
+  compania_licencia varchar
+  idlicencia varchar
+  idseclicencia varchar
+  idcuota varchar
+}
+
+Table T_DOCUMENTO_PEDIDO {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_pedido varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen varchar [ref: > M_ALMACEN.id_almacen]
+  id_tipo_documento varchar [ref: > M_TIPO_DOCUMENTO.id_tipo_documento]
+  id_documento_almacen varchar [ref: > M_DOCUMENTO_ALMACEN.id_documento_almacen]
+  id_vendedor varchar [ref: > M_VENDEDOR.id_vendedor]
+  id_fuerza_venta varchar [ref: > M_FUERZA_VENTA.id_fuerza_venta]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen varchar
+  cod_documento_pedido varchar
+  nro_documento_pedido varchar
+  cod_documento_pedido_origen varchar
+  nro_documento_pedido_origen varchar
+  cod_documento_almacen varchar
+  nro_documento_almacen varchar
+  fecha_pedido varchar
+  fecha_entrega varchar
+  cod_tipo_pedido varchar
+  cod_condicion_pago varchar
+  cod_vendedor varchar
+  cod_centro_distribucion varchar
+  cod_zona_distribucion varchar
+  cod_ruta_distribucion varchar
+  cod_fuerza_venta varchar
+  cod_estado_error varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+  cod_moneda varchar
+}
+
+Table T_DOCUMENTO_PEDIDO_ADES {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_pedido varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen varchar [ref: > M_ALMACEN.id_almacen]
+  id_almacen_emisor varchar
+  id_documento_transaccion varchar [ref: > M_DOCUMENTO_TRANSACCION.id_documento_transaccion]
+  id_tipo_documento varchar [ref: > M_TIPO_DOCUMENTO.id_tipo_documento]
+  id_comprobante varchar
+  id_documento_almacen varchar [ref: > M_DOCUMENTO_ALMACEN.id_documento_almacen]
+  id_vendedor varchar [ref: > M_VENDEDOR.id_vendedor]
+  id_fuerza_venta varchar [ref: > M_FUERZA_VENTA.id_fuerza_venta]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen_emisor varchar
+  cod_documento_transaccion varchar
+  nro_comprobante varchar
+  cod_tipo_documento_origen varchar
+  nro_pedido_origen varchar
+  fecha_pedido varchar
+  total_cajas varchar
+  cod_estado_pedido varchar
+  cod_centro_distribucion varchar
+  cod_zona_distribucion varchar
+  cod_vendedor varchar
+  cod_ruta_distribucion varchar
+  cod_modulo varchar
+  cod_fuerza_venta varchar
+  fecha_entrega varchar
+  cod_empleado_aprobado varchar
+  fecha_aprobacion varchar
+  cod_empleado_desaprobado varchar
+  flgdesaprobado varchar
+  cod_tipo_pedido varchar
+  cod_condicion_pago varchar
+  cod_moneda varchar
+  fecha_creacion varchar
+  usuario_creacion varchar
+  fecha_modificacion varchar
+  usuario_modificacion varchar
+}
+
+Table T_DOCUMENTO_PEDIDO_ADES_APROBACION {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_pedido_ades_aprobacion varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen_emisor varchar
+  id_documento_transaccion varchar [ref: > M_DOCUMENTO_TRANSACCION.id_documento_transaccion]
+  id_comprobante varchar
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  id_procedimiento varchar [ref: > M_PROCEDIMIENTO.id_procedimiento]
+  id_compania_prog varchar
+  id_sucursal_prog varchar
+  id_almacen_emisor_prog varchar
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen_emisor varchar
+  cod_documento_transaccion varchar
+  nro_comprobante varchar
+  cod_articulo varchar
+  cod_cliente varchar
+  cod_procedimiento varchar
+  cod_compania_prog varchar
+  cod_sucursal_prog varchar
+  cod_almacen_emisor_prog varchar
+  fecha_pedido varchar
+  fecha_programacion varchar
+  fecha_entrega varchar
+  cantidad_cajas_pedido varchar
+  cantidad_botellas_pedido varchar
+  cantidad_cajas_prog varchar
+  cantidad_botellas_prog varchar
+  cantidad_cajas_saldo varchar
+  cantidad_botellas_saldo varchar
+  cantidad_cajas_cancelada varchar
+  cantidad_botellas_cancelada varchar
+  cod_zona_distribucion varchar
+  cod_ruta_distribucion varchar
+  cod_modulo varchar
+  cod_vendedor varchar
+  cod_lista_precios varchar
+  total_descuento varchar
+  cod_forma_pago varchar
+  impprecaj varchar
+  tipo_pedido varchar
+  docucomvtaade varchar
+  nrocomvtaade varchar
+  importe varchar
+  saldo varchar
+  liquidado varchar
+  flgprogentreg varchar
+  flgcancelado varchar
+  usuario_cancelacion varchar
+  fecha_cancelacion varchar
+  lead_time varchar
+  flgpagado varchar
+  leadtime varchar
+  articuloant varchar
+  flgatendido varchar
+  fecha_creacion varchar
+  medpago varchar
+  flgfacorig varchar
+  usuario_creacion varchar
+  fecha_modificacion varchar
+  usuario_modificacion varchar
+}
+
+Table T_DOCUMENTO_PEDIDO_ADES_DESPACHO {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_pedido_ades_despacho varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_documento_transaccion varchar [ref: > M_DOCUMENTO_TRANSACCION.id_documento_transaccion]
+  id_comprobante varchar
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  id_procedimiento varchar [ref: > M_PROCEDIMIENTO.id_procedimiento]
+  id_compania_aten varchar
+  id_sucursal_aten varchar
+  id_almacen_emisor varchar
+  id_documento_atencion varchar
+  id_comprobante_atencion varchar
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen_emisor varchar
+  cod_documento_transaccion varchar
+  nro_comprobante varchar
+  cod_articulo varchar
+  cod_cliente varchar
+  cod_procedimiento varchar
+  fecha_programada varchar
+  cod_compania_aten varchar
+  cod_sucursal_aten varchar
+  cod_almacen_emisor_aten varchar
+  cod_docum_aten varchar
+  nro_docum_aten varchar
+  fecha_docum_aten varchar
+  cantidad_cajas_pedido varchar
+  cantidad_botellas_pedido varchar
+  cantidad_cajas_aten varchar
+  cantidad_botellas_aten varchar
+  cantidad_cajas_saldo varchar
+  cantidad_botellas_saldo varchar
+  estado varchar
+  estado_pedido varchar
+  importe varchar
+  fecha_entrega varchar
+  fecha_aten varchar
+  fecha_creacion varchar
+  usuario_creacion varchar
+  fecha_modificacion varchar
+  usuario_modificacion varchar
+}
+
+Table T_DOCUMENTO_PEDIDO_ADES_DETALLE {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_pedido_detalle varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen_emisor varchar
+  id_documento_pedido varchar [ref: > T_DOCUMENTO_PEDIDO.id_documento_pedido]
+  id_documento_pedido_cliente varchar
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  id_procedimiento varchar [ref: > M_PROCEDIMIENTO.id_procedimiento]
+  id_zona varchar [ref: > M_ZONA.id_zona]
+  id_regla varchar
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen_emisor varchar
+  cod_documento_transaccion varchar
+  nro_comprobante varchar
+  cod_articulo varchar
+  cod_cliente varchar
+  cod_procedimiento varchar
+  idregla varchar
+  fecha_pedido varchar
+  cantidad_cajas varchar
+  cantidad_botellas varchar
+  cantidad_botellas_adicional varchar
+  cantidad_cajas_asignada varchar
+  cantidad_botellas_asignada varchar
+  flgasignac varchar
+  cod_centro_distribucion varchar
+  cod_zona_distribucion varchar
+  cod_ruta_distribucion varchar
+  cod_modulo varchar
+  cod_lista_precios varchar
+  tasa_descuento varchar
+  monto_descuento varchar
+  importe_caja varchar
+  importe_cobrar varchar
+  cod_tipo_documento_almacen varchar
+  nro_documento_almacen varchar
+  cod_estado_pedido varchar
+  importe_valor_venta varchar
+  importe_base_im1 varchar
+  porcentaje_im1 varchar
+  importe_im1 varchar
+  importe_base_im2 varchar
+  porcentaje_im2 varchar
+  importe_im2 varchar
+  importe_base_im3 varchar
+  porcentaje_im3 varchar
+  importe_im3 varchar
+  importe_base_im4 varchar
+  pocentaje_im4 varchar
+  importe_im4 varchar
+  importe_base_im5 varchar
+  porcentaje_im5 varchar
+  importe_im5 varchar
+  importe_base_im6 varchar
+  porcentaje_im6 varchar
+  importe_im6 varchar
+  flg_extraruta varchar
+  id_salesforce varchar
+  fecha_creacion varchar
+  usuario_creacion varchar
+  fecha_modificacion varchar
+  usuario_modificacion varchar
+}
+
+Table T_DOCUMENTO_PEDIDO_ADES_PROGRAMACION {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_pedido_ades_programacion varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen_emisor varchar
+  id_documento_transaccion varchar [ref: > M_DOCUMENTO_TRANSACCION.id_documento_transaccion]
+  id_comprobante varchar
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  id_procedimiento varchar [ref: > M_PROCEDIMIENTO.id_procedimiento]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen_emisor varchar
+  cod_documento_transaccion varchar
+  nro_comprobante varchar
+  cod_articulo varchar
+  cod_cliente varchar
+  cod_procedimiento varchar
+  fecha_entrega varchar
+  cantidad_cajas_pedido varchar
+  cantidad_botellas_pedido varchar
+  cantidad_cajas_programada varchar
+  cantidad_botellas_programada varchar
+  estado varchar
+  fecha_creacion varchar
+  usuario_creacion varchar
+  fecha_modificacion varchar
+  usuario_modificacion varchar
+}
+
+Table T_DOCUMENTO_PEDIDO_DETALLE {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_pedido_detalle varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_tipo_documento varchar [ref: > M_TIPO_DOCUMENTO.id_tipo_documento]
+  id_documento_pedido varchar [ref: > T_DOCUMENTO_PEDIDO.id_documento_pedido]
+  id_documento_pedido_cliente varchar
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  id_zona varchar [ref: > M_ZONA.id_zona]
+  id_procedimiento varchar [ref: > M_PROCEDIMIENTO.id_procedimiento]
+  id_salesforce varchar
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen varchar
+  cod_documento_pedido varchar
+  nro_documento_pedido varchar
+  cod_documento_almacen varchar
+  nro_documento_almacen varchar
+  fecha_pedido varchar
+  cod_cliente varchar
+  cod_articulo varchar
+  cod_procedimiento varchar
+  cant_paquete float
+  cant_unidad float
+  cant_unidad_adicional float
+  cant_paquete_asignado float
+  cant_unidad_asignado float
+  cod_centro_distribucion varchar
+  cod_zona varchar
+  cod_ruta varchar
+  cod_modulo varchar
+  cod_lista_precio varchar
+  cod_estado_error varchar
+  cod_estado_pedido varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table T_DOCUMENTO_VENTA {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_venta varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen varchar [ref: > M_ALMACEN.id_almacen]
+  id_tipo_documento varchar [ref: > M_TIPO_DOCUMENTO.id_tipo_documento]
+  id_tipo_documento_pedido varchar
+  id_documento_pedido varchar [ref: > T_DOCUMENTO_PEDIDO.id_documento_pedido]
+  id_documento_pedido_cliente varchar
+  id_documento_almacen varchar [ref: > M_DOCUMENTO_ALMACEN.id_documento_almacen]
+  id_visita varchar [ref: > T_VISITA.id_visita]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  id_vendedor varchar [ref: > M_VENDEDOR.id_vendedor]
+  id_zona varchar [ref: > M_ZONA.id_zona]
+  id_ruta varchar [ref: > M_RUTA.id_ruta]
+  id_modulo varchar [ref: > M_ASIGNACION_MODULO.id_modulo]
+  id_fuerza_venta varchar [ref: > M_FUERZA_VENTA.id_fuerza_venta]
+  id_forma_pago varchar [ref: > M_FORMA_PAGO.id_forma_pago]
+  id_estado_documento varchar
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen varchar
+  cod_documento_venta varchar
+  nro_documento_venta varchar
+  nro_serie varchar
+  nro_preimpreso varchar
+  cod_documento_pedido varchar
+  nro_documento_pedido varchar
+  cod_documento_almacen varchar
+  nro_documento_almacen varchar
+  fecha_emision varchar
+  fecha_pedido varchar
+  fecha_liquidacion varchar
+  cod_comprobante_origen varchar
+  nro_comprobante_origen varchar
+  cod_cliente varchar
+  cod_vendedor varchar
+  cod_lista_precio varchar
+  cod_procedimiento varchar
+  cod_estado_comprobante varchar
+  cod_zona varchar
+  cod_ruta varchar
+  cod_modulo varchar
+  cod_supervisor varchar
+  nro_comprobante varchar
+  cod_moneda varchar
+  tipo_cambio_mn float
+  tipo_cambio_me float
+  fecha_anulacion varchar
+  cod_fuerza_venta varchar
+  cod_motivo_rechazo varchar
+  cod_forma_pago varchar
+  cod_documento_venta_referencia varchar
+  nro_documento_venta_referencia varchar
+  flg_refact varchar
+  flg_facglob varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table T_DOCUMENTO_VENTA_DETALLE {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_venta_detalle varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_tipo_documento varchar [ref: > M_TIPO_DOCUMENTO.id_tipo_documento]
+  id_documento_venta varchar [ref: > T_DOCUMENTO_VENTA.id_documento_venta]
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  id_operacion varchar [ref: > M_OPERACION.id_operacion]
+  id_lista_precio varchar [ref: > M_LISTA_PRECIO.id_lista_precio]
+  fecha_liquidacion varchar
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen varchar
+  cod_documento_transaccion varchar
+  nro_comprobante_venta varchar
+  cod_articulo varchar
+  cod_operacion varchar
+  cod_unidad_venta varchar
+  cant_paquete float
+  cant_unidad float
+  cant_unidades float
+  cod_lista_precio varchar
+  tipo_precio varchar
+  cod_procedimiento varchar
+  precio_paquete float
+  precio_unidad float
+  imp_valorizado float
+  imp_descuento float
+  imp_cobrar float
+  imp_descuento_sinimp float
+  imp_base_isc float
+  porc_isc float
+  imp_base_igv float
+  porc_igv float
+  imp_isc float
+  imp_igv float
+  imp_base_im3 float
+  porc_im3 float
+  imp_im3 float
+  imp_base_im4 float
+  porc_im4 float
+  imp_im4 float
+  imp_base_im5 float
+  porc_im5 float
+  imp_im5 float
+  imp_base_im6 float
+  porc_im6 float
+  imp_im6 float
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
+Table T_LICENCIA_CUOTA {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_licencia_cuota varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_licencia varchar [ref: > M_LICENCIA.id_licencia]
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  id_licencia_detalle varchar [ref: > M_LICENCIA_DETALLE.id_licencia_detalle]
+  id_documento_venta_detalle varchar [ref: > T_DOCUMENTO_VENTA_DETALLE.id_documento_venta_detalle]
+  cod_compania varchar
+  cod_licencia varchar
+  cod_licencia_secuencia varchar
+  cod_cuota varchar
+  cod_ejercicio varchar
+  cod_periodo varchar
+  imp_cuota float
+  estado_cuota varchar
+  cod_externo varchar
+  cod_sucursal varchar
+  cod_almacen varchar
+  cod_documento_venta varchar
+  nro_documento_venta varchar
+  cod_articulo varchar
+  cod_operacion varchar
+  cod_unidad_venta varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+  fecha_periodo varchar
+}
+
+Table T_MOVIMIENTO_INVENTARIO {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_movimiento_inventario varchar [pk]
+  id_movimiento_almacen varchar
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen varchar [ref: > M_ALMACEN.id_almacen]
+  id_documento_almacen varchar [ref: > M_DOCUMENTO_ALMACEN.id_documento_almacen]
+  id_procedimiento varchar [ref: > M_PROCEDIMIENTO.id_procedimiento]
+  id_compania_destino varchar
+  id_sucursal_destino varchar
+  id_almacen_destino varchar
+  id_transportista varchar [ref: > M_TIPO_TRANSPORTISTA.id_transportista]
+  id_vehiculo varchar [ref: > M_CAPACIDAD_VEHICULO.id_vehiculo]
+  id_chofer varchar
+  id_movimiento_ingreso varchar
+  id_compania_referencia varchar
+  id_sucursal_referencia varchar
+  id_almacen_referencia varchar
+  id_vendedor varchar [ref: > M_VENDEDOR.id_vendedor]
+  id_persona varchar [ref: > M_PERSONA.id_persona]
+  cod_compania varchar
+  cod_sucursal varchar
+  nro_documento_movimiento varchar
+  cod_sucursal_origen varchar
+  cod_almacen_emisor_origen varchar
+  cod_documento_transaccion varchar
+  nro_documento_almacen varchar
+  cod_procedimiento varchar
+  cod_compania_referencia varchar
+  cod_sucursal_referencia varchar
+  cod_almacen_referencia varchar
+  cod_documento_transaccion1 varchar
+  nro_documento_almacen1 varchar
+  cod_compania_referencia2 varchar
+  cod_sucursal_referencia2 varchar
+  cod_almacen_referencia2 varchar
+  cod_tipo_documento_referencia2 varchar
+  nro_documento_almacen_referencia2 varchar
+  cod_compania_destino varchar
+  cod_sucursal_destino varchar
+  cod_almacen_emisor_destino varchar
+  cod_transportista varchar
+  cod_vehiculo varchar
+  cod_chofer varchar
+  cod_turno_carga varchar
+  cod_turno_descarga varchar
+  fecha_emision varchar
+  fecha_liquidacion varchar
+  fecha_almacen varchar
+  cod_estado_comprobante varchar
+  cod_tipo_documento_liquidacion varchar
+  nro_documento_liquidacion varchar
+  cod_moneda varchar
+  tipo_cambio float
+  total_importe float
+  total_peso float
+  cod_vendedor varchar
+  cod_zona_distribucion varchar
+  nro_serie_alm varchar
+  nropricoal varchar
+  prov_clien_emp varchar
+  usuario_creacion varchar
+  fecha_creacion timestamp
+  usuario_modificacion varchar
+  fecha_modificacion timestamp
+  flg_impreso varchar
+}
+
+Table T_MOVIMIENTO_INVENTARIO_DETALLE {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_movimiento_almacen_detalle varchar [pk]
+  id_movimiento_almacen varchar
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen varchar [ref: > M_ALMACEN.id_almacen]
+  id_documento_almacen varchar [ref: > M_DOCUMENTO_ALMACEN.id_documento_almacen]
+  id_procedimiento varchar [ref: > M_PROCEDIMIENTO.id_procedimiento]
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  id_centro_costo varchar
+  cod_compania varchar
+  cod_sucursal varchar
+  nro_documento_movimiento varchar
+  nro_linea_comprobante varchar
+  cod_articulo varchar
+  cod_sucursal_origen varchar
+  cod_almacen_emisor_origen varchar
+  cod_documento_transaccion varchar
+  nro_documento_almacen varchar
+  fecha_almacen varchar
+  cod_procedimiento varchar
+  operacion_kardex varchar
+  cod_operacion varchar
+  cod_unidad_articulo varchar
+  nro_secuencia_origen varchar
+  cant_unidades float
+  cant_cajas float
+  cant_botellas float
+  costo_unitario float
+  costo_total float
+  cod_documento_transaccion_ref varchar
+  nro_documento_almacen_ref varchar
+  cod_centro_costo_emisor varchar
+  fecha_almacens varchar
+  cod_motivo varchar
+  estado varchar
+  usuario_creacion varchar
+  fecha_creacion timestamp
+  usuario_modificacion varchar
+  fecha_modificacion timestamp
+}
+
+Table T_MOVIMIENTO_INVENTARIO_TRANSITO {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_documento_almacen varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen varchar [ref: > M_ALMACEN.id_almacen]
+  id_sucursal_destino varchar
+  id_almacen_destino varchar
+  id_procedimiento varchar [ref: > M_PROCEDIMIENTO.id_procedimiento]
+  id_compania_destino varchar
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen_emisor varchar
+  cod_documento_transaccion varchar
+  nro_documento_almacen varchar
+  cod_sucursal_destino varchar
+  cod_almacen_destino varchar
+  cod_procedimiento varchar
+  fecha_emision varchar
+  fecha_hora_emision timestamp
+  usuario_emision varchar
+  fecha_recepcion varchar
+  fecha_hora_recepcion timestamp
+  usuario_recepcion varchar
+  fecha_liquidacion varchar
+  fecha_hora_liquidacion timestamp
+  usuario_liquidacion varchar
+  estado varchar
+  fecha_anulacion varchar
+  fecha_hora_anulacion timestamp
+  usuario_anulacion varchar
+  cod_compania_destino varchar
+  flg_confirmado varchar
+  fecha_llegada varchar
+  fecha_hora_llegada timestamp
+  usuario_llegada varchar
+}
+
+Table T_TOMA_INVENTARIO {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_inventario_saldo varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen varchar [ref: > M_ALMACEN.id_almacen]
+  cod_compania varchar
+  cod_sucursal varchar
+  cod_almacen_emisor varchar
+  fecha_inventario varchar
+  tipo_toma varchar
+  cod_empleado_responsable varchar
+  estado varchar
+  fecha_registro varchar
+  nro_conteo varchar
+  flg_ajuste varchar
+  flg_tercerconteo varchar
+  flg_conteodiferencia varchar
+  flg_conteofinal varchar
+  cod_empleado_aprobador varchar
+  usuario_creacion varchar
+  fecha_creacion timestamp
+  usuario_modificacion varchar
+  fecha_modificacion timestamp
+}
+
+Table T_TOMA_INVENTARIO_DETALLE {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_inventario_saldo_detalle varchar [pk]
+  id_inventario_saldo varchar
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_almacen varchar [ref: > M_ALMACEN.id_almacen]
+  id_articulo varchar [ref: > M_ARTICULO.id_articulo]
+  cod_compania varchar
+  cod_sucursal varchar
+  fecha_inventario varchar
+  cod_almacen_emisor varchar
+  tipo_toma varchar
+  cod_articulo varchar
+  estado varchar
+  stock_sistema float
+  stock_comprometido float
+  stock_disponible float
+  cant_conteo1 float
+  cant_conteo2 float
+  cant_conteo3 float
+  cant_diferencia_conteo float
+  flg_ajuste varchar
+  cant_ajuste float
+  stock_final float
+  nro_secuencia float
+  usuario_creacion varchar
+  fecha_creacion timestamp
+  usuario_modificacion varchar
+  fecha_modificacion timestamp
+}
+
+Table T_VISITA {
+  processperiod varchar
+  processdate timestamp
+  lastmodifydate timestamp
+  id_visita varchar [pk]
+  id_compania varchar [ref: > M_COMPANIA.id_compania]
+  id_sucursal varchar [ref: > M_SUCURSAL.id_sucursal]
+  id_cliente varchar [ref: > M_CLIENTE.id_cliente]
+  id_vendedor varchar [ref: > M_VENDEDOR.id_vendedor]
+  id_zona varchar [ref: > M_ZONA.id_zona]
+  id_ruta varchar [ref: > M_RUTA.id_ruta]
+  id_modulo varchar [ref: > M_ASIGNACION_MODULO.id_modulo]
+  id_fuerza_venta varchar [ref: > M_FUERZA_VENTA.id_fuerza_venta]
+  cod_compania varchar
+  cod_sucursal varchar
+  fecha_visita varchar
+  cod_cliente varchar
+  cod_vendedor varchar
+  cod_zona varchar
+  cod_ruta varchar
+  cod_modulo varchar
+  cod_fuerza_venta varchar
+  flg_visita varchar
+  flg_pedido varchar
+  flg_extraruta varchar
+  fecha_creacion timestamp
+  usuario_creacion varchar
+  fecha_modificacion timestamp
+  usuario_modificacion varchar
+}
+
