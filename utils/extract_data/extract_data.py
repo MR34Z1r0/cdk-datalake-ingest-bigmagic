@@ -279,11 +279,6 @@ class DataExtractor:
                 port=int(self.port) if self.port else None,
                 **additional_params
             )
-            self.logger.info(f"server: {self.server}")
-            self.logger.info(f"port: {self.port}")
-            self.logger.info(f"db_name: {self.db_name}")
-            self.logger.info(f"username: {self.username}")
-            self.logger.info(f"password: {password}")
             self.logger.info(f"Database connection initialized for {self.db_type} database")
             self.logger.info(f"driver: {self.driver}")
             self.logger.info(f"url: {self.url}")
@@ -638,7 +633,7 @@ class DataExtractor:
             parquet_buffer = io.BytesIO()
             df.to_parquet(parquet_buffer, index=False, engine='pyarrow')
             parquet_bytes = parquet_buffer.getvalue()
-             
+            
             if not parquet_key.endswith('.parquet'):
                 parquet_key += '.parquet'
             
@@ -654,7 +649,7 @@ class DataExtractor:
             return f"s3://{bucket_name}/{parquet_key}"
             
         except Exception as e:
-            self.logger.error(f"Error writing DataFrame to S3 as Parquet: {str(e)}") 
+            self.logger.error(f"Error writing DataFrame to S3 as Parquet: {str(e)}")
 
     def _process_columns_field(self):
         """Process the COLUMNS field to handle potential SQL Server identifier length issues"""
@@ -1238,7 +1233,7 @@ logger.info(f"EndPoint: {config['ENDPOINT_NAME']}")
 logger.info("=" * 80)
 
 logger.info("Starting data extraction process")
-logger.info(f"Configuration: {config}") 
+logger.info(f"Configuration: {config}")
 
 try:
     # Create extractor instance
