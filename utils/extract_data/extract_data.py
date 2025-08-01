@@ -17,15 +17,11 @@ from dateutil.relativedelta import relativedelta
 
 IS_AWS_GLUE = False
 IS_AWS_S3 = False
+PARQUET_AVAILABLE = True
 
-# Try to import PyArrow for Parquet support
-try:
-    import pyarrow as pa
-    import pyarrow.parquet as pq
-    PARQUET_AVAILABLE = True
-except ImportError:
-    PARQUET_AVAILABLE = False
-
+import pyarrow as pa
+import pyarrow.parquet as pq
+ 
 # Import aje_libs 
 try:
     import aje_libs
@@ -134,14 +130,19 @@ class DataExtractor:
             # Load CSV data
             self.logger.info(f"TABLES_CSV_S3: {self.config['TABLES_CSV_S3']}")
             tables_data = load_csv_from_s3(self.config['TABLES_CSV_S3']) if IS_AWS_S3 else load_csv_from_local(self.config['TABLES_CSV_S3'])
+            self.logger.info(f"tables_data: {tables_data[0]}")
             self.logger.info(f"CREDENTIALS_CSV_S3: {self.config['CREDENTIALS_CSV_S3']}")
             credentials_data = load_csv_from_s3(self.config['CREDENTIALS_CSV_S3']) if IS_AWS_S3 else load_csv_from_local(self.config['CREDENTIALS_CSV_S3'])
+            self.logger.info(f"credentials_data: {credentials_data[0]}")
             self.logger.info(f"COLUMNS_CSV_S3: {self.config['COLUMNS_CSV_S3']}")
             columns_data = load_csv_from_s3(self.config['COLUMNS_CSV_S3']) if IS_AWS_S3 else load_csv_from_local(self.config['COLUMNS_CSV_S3'])
-            
+            self.logger.info(f"columns_data: {columns_data[0]}")
+
+            self.logger.info(f"config: {self.config}")
+
             # Filter data for current table and database
             table_name = self.config.get('TABLE_NAME')
-            src_db_name = self.config.get('SRC_DB_NAME')
+            endpoint_name = self.config.get('ENDPOINT_NAME')
             environment = self.config.get('ENVIRONMENT')
             
             # Find table configuration
@@ -161,7 +162,7 @@ class DataExtractor:
             # Find database credentials
             self.endpoint_data = None
             for row in credentials_data:
-                if (row.get('SRC_DB_NAME', '') == src_db_name and 
+                if (row.get('ENDPOINT_NAME', '') == endpoint_name and 
                     row.get('ENV', '').upper() == environment.upper()):
                     self.endpoint_data = row
                     break
@@ -278,7 +279,11 @@ class DataExtractor:
                 port=int(self.port) if self.port else None,
                 **additional_params
             )
-            
+            self.logger.info(f"server: {self.server}")
+            self.logger.info(f"port: {self.port}")
+            self.logger.info(f"db_name: {self.db_name}")
+            self.logger.info(f"username: {self.username}")
+            self.logger.info(f"password: {password}")
             self.logger.info(f"Database connection initialized for {self.db_type} database")
             self.logger.info(f"driver: {self.driver}")
             self.logger.info(f"url: {self.url}")
@@ -609,11 +614,6 @@ class DataExtractor:
     def write_dataframe_to_s3_parquet(self, df, s3_path, filename=None):
         """Write pandas DataFrame to S3 in Parquet format"""
         try:
-            # Check if PyArrow is available for Parquet support
-            if not PARQUET_AVAILABLE:
-                self.logger.warning("PyArrow not available, falling back to CSV format")
-                return self.write_dataframe_to_s3_csv_fallback(df, s3_path, filename)
-            
             s3_client = boto3.client('s3')
             
             # Parse S3 path
@@ -632,15 +632,13 @@ class DataExtractor:
             if key_prefix and not key_prefix.endswith('/'):
                 key_prefix += '/'
             
-            key = key_prefix + filename
+            parquet_key = key_prefix + filename
             
             # Write as Parquet format
             parquet_buffer = io.BytesIO()
             df.to_parquet(parquet_buffer, index=False, engine='pyarrow')
             parquet_bytes = parquet_buffer.getvalue()
-            
-            # Ensure .parquet extension
-            parquet_key = key.replace('.csv', '.parquet')
+             
             if not parquet_key.endswith('.parquet'):
                 parquet_key += '.parquet'
             
@@ -656,56 +654,7 @@ class DataExtractor:
             return f"s3://{bucket_name}/{parquet_key}"
             
         except Exception as e:
-            self.logger.error(f"Error writing DataFrame to S3 as Parquet: {str(e)}")
-            # Fallback to CSV if Parquet fails
-            self.logger.warning("Falling back to CSV format due to Parquet error")
-            return self.write_dataframe_to_s3_csv_fallback(df, s3_path, filename)
-            
-    def write_dataframe_to_s3_csv_fallback(self, df, s3_path, filename=None):
-        """Fallback method to write DataFrame to S3 as CSV"""
-        try:
-            s3_client = boto3.client('s3')
-            
-            # Parse S3 path
-            if s3_path.startswith('s3://'):
-                s3_path = s3_path[5:]  # Remove s3:// prefix
-            
-            path_parts = s3_path.split('/', 1)
-            bucket_name = path_parts[0]
-            key_prefix = path_parts[1] if len(path_parts) > 1 else ''
-            
-            # Generate filename if not provided
-            if not filename:
-                filename = f"data_{uuid.uuid4().hex[:8]}.csv"
-            
-            # Ensure key_prefix ends with /
-            if key_prefix and not key_prefix.endswith('/'):
-                key_prefix += '/'
-            
-            key = key_prefix + filename
-            
-            # Use CSV format as fallback
-            csv_buffer = io.StringIO()
-            df.to_csv(csv_buffer, index=False, sep='|', quoting=1)
-            csv_bytes = csv_buffer.getvalue().encode('utf-8')
-            
-            # Use .csv extension
-            csv_key = key.replace('.parquet', '.csv')
-            
-            # Upload to S3
-            s3_client.put_object(
-                Bucket=bucket_name,
-                Key=csv_key,
-                Body=csv_bytes,
-                ContentType='text/csv'
-            )
-            
-            self.logger.info(f"Successfully wrote DataFrame to s3://{bucket_name}/{csv_key} as CSV (fallback)")
-            return f"s3://{bucket_name}/{csv_key}"
-            
-        except Exception as e:
-            self.logger.error(f"Error writing DataFrame to S3 as CSV fallback: {str(e)}")
-            raise
+            self.logger.error(f"Error writing DataFrame to S3 as Parquet: {str(e)}") 
 
     def _process_columns_field(self):
         """Process the COLUMNS field to handle potential SQL Server identifier length issues"""
@@ -1234,7 +1183,7 @@ config = {}
 if IS_AWS_GLUE:
     from awsglue.utils import getResolvedOptions    
     args = getResolvedOptions(
-        sys.argv, ['S3_RAW_PREFIX', 'ARN_TOPIC_SUCCESS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'ENVIRONMENT', 'REGION', 'DYNAMO_LOGS_TABLE', 'ARN_TOPIC_FAILED', 'TABLE_NAME', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'SRC_DB_NAME'])
+        sys.argv, ['S3_RAW_PREFIX', 'ARN_TOPIC_SUCCESS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'ENVIRONMENT', 'REGION', 'DYNAMO_LOGS_TABLE', 'ARN_TOPIC_FAILED', 'TABLE_NAME', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'ENDPOINT_NAME'])
 
     config = {
         "S3_RAW_PREFIX": args["S3_RAW_PREFIX"],
@@ -1250,7 +1199,7 @@ if IS_AWS_GLUE:
         "TABLES_CSV_S3": args["TABLES_CSV_S3"],
         "CREDENTIALS_CSV_S3": args["CREDENTIALS_CSV_S3"],
         "COLUMNS_CSV_S3": args["COLUMNS_CSV_S3"],
-        "SRC_DB_NAME": args["SRC_DB_NAME"]
+        "ENDPOINT_NAME": args["ENDPOINT_NAME"]
     }
 else: 
     config = {
@@ -1263,7 +1212,7 @@ else:
                 'ENVIRONMENT': "DEV",
                 'REGION': "us-east-1",
                 'DYNAMO_LOGS_TABLE': "sofia-dev-datalake-logs-ddb",
-                'SRC_DB_NAME': "PEBDDATA2",
+                'ENDPOINT_NAME': "PEBDDATA2", 
                 # Configuration parameters - pass CSV paths instead of large JSON to avoid template size limits
                 'TABLES_CSV_S3': "../../artifacts/configuration/csv/tables.csv",
                 'CREDENTIALS_CSV_S3': "../../artifacts/configuration/csv/credentials.csv",
@@ -1275,7 +1224,7 @@ else:
     args = parser.parse_args()
     # Update config with table name from arguments
     config["TABLE_NAME"] = args.TABLE_NAME
-
+     
 region_name = config["REGION"]
 boto3.setup_default_session(profile_name='prod-compliance-admin', region_name=region_name)
 
@@ -1285,11 +1234,12 @@ logger.info("=" * 80)
 
 logger.info("Version: SQL Server Identifier Parsing Fix v2.0")
 logger.info(f"Table: {config['TABLE_NAME']}")
-logger.info(f"Database: {config['SRC_DB_NAME']}")
+logger.info(f"EndPoint: {config['ENDPOINT_NAME']}")
 logger.info("=" * 80)
 
 logger.info("Starting data extraction process")
 logger.info(f"Configuration: {config}") 
+
 try:
     # Create extractor instance
     logger.info("Creating extractor instance")
