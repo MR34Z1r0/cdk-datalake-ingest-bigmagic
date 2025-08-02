@@ -222,8 +222,8 @@ class DataExtractor:
         """Initialize table and endpoint data from loaded CSV configurations"""
         try:
             # Set S3 path using loaded data
-            team = self.endpoint_data['TEAM']
-            data_source = self.endpoint_data['DATA_SOURCE']
+            team = self.team
+            data_source = self.data_source
             endpoint_name = self.endpoint_data['ENDPOINT_NAME']
             # Get clean table name (remove alias after space) for S3 path
             clean_table_name = self._get_clean_table_name()
