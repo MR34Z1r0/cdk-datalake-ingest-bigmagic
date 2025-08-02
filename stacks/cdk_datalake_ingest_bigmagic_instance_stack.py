@@ -103,6 +103,7 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
                     "group_step_function_arn.$": f"States.Format('arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{endpoint_name.lower()}_{{}}-sf', $.process_id)",
                     "process_id.$": "$.process_id",
                     "endpoint_name": endpoint_name,
+                    "run_extract": False,
                     "instance": self.instance_name,
                     "expected_step_function_name.$": f"States.Format('{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{endpoint_name.lower()}_{{}}-sf', $.process_id)"
                 },

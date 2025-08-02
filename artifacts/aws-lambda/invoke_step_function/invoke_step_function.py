@@ -28,10 +28,11 @@ def lambda_handler(event, context):
         # Extract inputs
         group_step_function_arn = event.get('group_step_function_arn')
         process_id = event.get('process_id')
-        database = event.get('database')
+        run_extract = event.get('run_extract')
+        endpoint_name = event.get('endpoint_name')
         instance = event.get('instance')
         
-        logger.info(f"Processing database: {database}, instance: {instance}, process_id: {process_id}")
+        logger.info(f"Processing endpoint_name: {endpoint_name}, instance: {instance}, process_id: {process_id}, run_extract: {run_extract}")
         
         # Extract Step Function name from ARN for better error reporting
         step_function_name = group_step_function_arn.split(':')[-1] if group_step_function_arn else "unknown"
@@ -47,7 +48,10 @@ def lambda_handler(event, context):
         
         # Prepare input for the Step Function
         step_function_input = {
-            "process_id": process_id
+            "process_id": process_id,
+            "run_extract": run_extract,
+            'instance': instance,
+            "endpoint_name": endpoint_name
         }
         
         logger.info(f"Starting execution of Step Function: {group_step_function_arn}")
@@ -69,9 +73,10 @@ def lambda_handler(event, context):
         
         return {
             'statusCode': 200,
-            'database': database,
+            'endpoint_name': endpoint_name,
             'instance': instance,
             'process_id': process_id,
+            'run_extract': run_extract,
             'execution_arn': execution_arn,
             'status': 'RUNNING',
             'message': 'Step Function execution started successfully'
@@ -86,7 +91,8 @@ def lambda_handler(event, context):
             'error': 'StateMachineDoesNotExist',
             'message': f"Step Function not found: {step_function_name}",
             'step_function_arn': group_step_function_arn,
-            'database': database,
+            'endpoint_name': endpoint_name,
+            'run_extract': run_extract,
             'instance': instance,
             'process_id': process_id
         }
@@ -97,7 +103,8 @@ def lambda_handler(event, context):
             'statusCode': 429,
             'error': 'ExecutionLimitExceeded',
             'message': str(e),
-            'database': database,
+            'endpoint_name': endpoint_name,
+            'run_extract': run_extract,
             'instance': instance,
             'process_id': process_id
         }
@@ -108,7 +115,8 @@ def lambda_handler(event, context):
             'statusCode': 404,
             'error': 'ExecutionDoesNotExist',
             'message': str(e),
-            'database': database,
+            'endpoint_name': endpoint_name,
+            'run_extract': run_extract,
             'instance': instance,
             'process_id': process_id
         }
@@ -122,7 +130,8 @@ def lambda_handler(event, context):
             'error': 'InternalError',
             'message': str(e),
             'step_function_name': step_function_name,
-            'database': database,
+            'endpoint_name': endpoint_name,
+            'run_extract': run_extract,
             'instance': instance,
             'process_id': process_id
         }

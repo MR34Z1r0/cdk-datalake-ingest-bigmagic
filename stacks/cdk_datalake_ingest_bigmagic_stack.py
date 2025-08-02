@@ -551,6 +551,15 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         )
         self.builder.deploy_s3_bucket(config)
         
+        # Deploy Layer glue job
+        config = S3DeploymentConfig(
+            f"BucketDeploymentLayerGlueJob{self.PROJECT_CONFIG.app_config['datasource'].lower()}",
+            [s3_deployment.Source.asset(self.Paths.LOCAL_ARTIFACTS_GLUE_LAYER)],
+            self.s3_artifacts_bucket,
+            self.Paths.AWS_ARTIFACTS_GLUE_LAYER
+        )
+        self.builder.deploy_s3_bucket(config)
+
         # Deploy CSV configuration files
         config = S3DeploymentConfig(
             f"BucketDeploymentCSVConfigurations{self.PROJECT_CONFIG.app_config['datasource'].lower()}",

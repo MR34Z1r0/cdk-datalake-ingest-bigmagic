@@ -222,11 +222,12 @@ class DataExtractor:
         """Initialize table and endpoint data from loaded CSV configurations"""
         try:
             # Set S3 path using loaded data
-            team = self.endpoint_data.get('TEAM', self.team)
-            data_source = self.endpoint_data.get('DATA_SOURCE', self.data_source)
+            team = self.endpoint_data['TEAM']
+            data_source = self.endpoint_data['DATA_SOURCE']
+            endpoint_name = self.endpoint_data['ENDPOINT_NAME']
             # Get clean table name (remove alias after space) for S3 path
             clean_table_name = self._get_clean_table_name()
-            self.day_route = f"{team}/{data_source}/{clean_table_name}/year={YEARS_LIMA}/month={MONTHS_LIMA}/day={DAYS_LIMA}/"
+            self.day_route = f"{team}/{data_source}/{endpoint_name}/{clean_table_name}/year={YEARS_LIMA}/month={MONTHS_LIMA}/day={DAYS_LIMA}/"
             
             self.s3_raw_path = self.config['S3_RAW_PREFIX'] + self.day_route
             self.bucket = self.config['S3_RAW_PREFIX'].split("/")[2]
@@ -989,7 +990,7 @@ class DataExtractor:
         partition_column = self.table_data.get('PARTITION_COLUMN', '').strip()
 
         # Full load with partitioning
-        if load_type == 'full' and table_type == 't' and partition_column:
+        if load_type == 'full' and table_type == 't' and partition_column != '':
             self.logger.info("Full load with partitioning based on min/max range")
 
             try:

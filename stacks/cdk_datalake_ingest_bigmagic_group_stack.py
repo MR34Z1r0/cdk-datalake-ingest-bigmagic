@@ -234,7 +234,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                 '--DYNAMO_LOGS_TABLE': self.dynamo_logs_table.table_name,
                 '--ENDPOINT_NAME': self.endpoint_name,
                 # Include aje_libs for dependencies
-                '--extra-py-files': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.LOCAL_ARTIFACTS_GLUE_LAYER}/aje_libs.zip",
+                '--extra-py-files': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.AWS_ARTIFACTS_GLUE_LAYER}/aje_libs.zip",
                 '--additional-python-modules': f"aws-lambda-powertools, pymssql",
                 'library-set': 'analytics',
                 # Configuration parameters - pass CSV paths instead of large JSON to avoid template size limits
@@ -281,14 +281,14 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                 '--TABLE_NAME': logical_name,
                 '--DYNAMO_LOGS_TABLE': self.dynamo_logs_table.table_name,
                 '--ENDPOINT_NAME': self.endpoint_name,
-                # Include sofia_libs for dependencies
-                '--extra-py-files': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.LOCAL_ARTIFACTS_GLUE_LAYER}/aje_libs.zip",
+                # Include aje_libs for dependencies
+                '--extra-py-files': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.AWS_ARTIFACTS_GLUE_LAYER}/aje_libs.zip",
                 # Enable Delta Lake support using the proper Glue 4.0 parameter
                 '--datalake-formats': 'delta',
                 # Configuration parameters - pass CSV paths instead of large JSON to avoid template size limits
-                '--TABLES_CSV_S3': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/tables.csv",
-                '--CREDENTIALS_CSV_S3': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/credentials.csv",
-                '--COLUMNS_CSV_S3': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/columns.csv"
+                '--TABLES_CSV_S3': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.AWS_ARTIFACTS_CONFIGURE_CSV}/tables.csv",
+                '--CREDENTIALS_CSV_S3': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.AWS_ARTIFACTS_CONFIGURE_CSV}/credentials.csv",
+                '--COLUMNS_CSV_S3': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.AWS_ARTIFACTS_CONFIGURE_CSV}/columns.csv"
             },
             worker_type=glue.WorkerType.G_1_X,
             worker_count=2,
@@ -400,7 +400,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                     "jobs": transform_job_configs,
                     "process_id": str(self.process_id),
                     "endpoint_name": self.endpoint_name,
-                    "execution_start.$": "$.Execution.StartTime",
+                    "execution_start.$": "$$.Execution.StartTime",
                     "job_type": "transform"
                 },
                 result_path="$.transform_job_configs"
@@ -412,7 +412,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                     "jobs": transform_job_configs,
                     "process_id": str(self.process_id),
                     "endpoint_name": self.endpoint_name,
-                    "execution_start.$": "$.Execution.StartTime",
+                    "execution_start.$": "$$.Execution.StartTime",
                     "job_type": "transform"
                 },
                 result_path="$.transform_job_configs"

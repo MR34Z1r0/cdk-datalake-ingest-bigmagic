@@ -5,7 +5,7 @@ import sys
 import time
 import json
 import csv
-
+from io import StringIO
 import boto3
 import pytz
 from awsglue.context import GlueContext
@@ -33,20 +33,16 @@ args = getResolvedOptions(
 
 # Load configuration from CSV files in S3
 def load_csv_from_s3(s3_path):
-    """Load CSV file from S3 and return as list of dictionaries"""
-    import boto3
-    import csv
-    from io import StringIO
-    
+    """Load CSV file from S3 and return as list of dictionaries""" 
     s3_client = boto3.client('s3')
     bucket = s3_path.split('/')[2]
     key = '/'.join(s3_path.split('/')[3:])
     
     response = s3_client.get_object(Bucket=bucket, Key=key)
-    content = response['Body'].read().decode('utf-8')
+    content = response['Body'].read().decode('latin-1')
     
     csv_data = []
-    reader = csv.DictReader(StringIO(content))
+    reader = csv.DictReader(StringIO(content), delimiter=';')
     for row in reader:
         csv_data.append(row)
     
