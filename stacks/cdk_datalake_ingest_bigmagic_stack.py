@@ -129,13 +129,13 @@ class CdkDatalakeIngestBigmagicStack(Stack):
             CfnOutput(self, "SecretName", value=secret.secret_name)
             CfnOutput(self, "SecretArn", value=secret.secret_arn)
 
-    def _create_catalog_job(self, database_name):
+    def _create_catalog_job(self, endpoint_name):
         from aws_cdk import Duration
         import aws_cdk.aws_glue_alpha as glue
         from aje_cdk_libs.models.configs import GlueJobConfig
         
-        job_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_catalog_{database_name.lower()}"
-        catalog_tags = self._create_job_tags('Catalog', database_name)
+        job_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_catalog_{endpoint_name.lower()}"
+        catalog_tags = self._create_job_tags('Catalog', endpoint_name)
         
         catalog_job_config = GlueJobConfig(
             job_name=job_name,
@@ -154,7 +154,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
                 '--DATA_SOURCE': self.PROJECT_CONFIG.app_config["datasource"],
                 '--REGION': self.PROJECT_CONFIG.region_name,
                 '--ENVIRONMENT': self.PROJECT_CONFIG.environment.value.lower(),
-                '--DATABASE_NAME': database_name
+                '--ENDPOINT_NAME': endpoint_name
             },
             continuous_logging=glue.ContinuousLoggingProps(enabled=True),
             timeout=Duration.minutes(30),
@@ -166,36 +166,36 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         return self.builder.build_glue_job(catalog_job_config)
 
     def _create_crawler_glue_jobs(self):
-        """Create crawler jobs for each database"""
+        """Create crawler jobs for each endpoint"""
         from aje_cdk_libs.models.configs import GlueJobConfig
         from aws_cdk import Duration
         import aws_cdk.aws_glue_alpha as glue
         import csv
         
-        # Read credentials to get database list that match current environment
-        db_names = []
-        with open('artifacts/configuration/csv/credentials.csv', newline='', encoding='utf-8') as creds_file:
+        # Read credentials to get endpoint list that match current environment
+        endpoint_names = []
+        with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/credentials.csv', newline='', encoding='utf-8') as creds_file:
             creds_reader = csv.DictReader(creds_file, delimiter=';')
             for row in creds_reader:
-                # Only include databases that match the current environment
+                # Only include endpoints that match the current environment
                 if row['ENV'].lower() == self.PROJECT_CONFIG.environment.value.lower():
-                    db_names.append(row['SRC_DB_NAME'])
+                    endpoint_names.append(row['ENDPOINT_NAME'])
         
-        # Create crawler jobs for each database
+        # Create crawler jobs for each endpoint
         self.crawler_jobs = {}
         
-        for db_name in db_names:
-            # Create job name for this database
-            job_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_crawler_{db_name.lower()}"
-            crawler_tags = self._create_job_tags('Crawler', db_name)
+        for endpoint_name in endpoint_names:
+            # Create job name for this endpoint
+            job_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_crawler_{endpoint_name.lower()}"
+            crawler_tags = self._create_job_tags('Crawler', endpoint_name)
             
-            # Create crawler configuration JSON for this specific database
+            # Create crawler configuration JSON for this specific endpoint
             crawler_config = {
-                "endpoint_name": db_name,
-                "databases": [db_name],  # This crawler handles only this database
+                "endpoint_name": endpoint_name,
+                "endpoint_names": [endpoint_name],  # This crawler handles only this endpoint
                 "crawler_settings": {
                     "table_prefix": "",
-                    "s3_path_prefix": f"s3://{self.s3_stage_bucket.bucket_name}/{db_name}/",
+                    "s3_path_prefix": f"s3://{self.s3_stage_bucket.bucket_name}/{endpoint_name}/",
                     "database_prefix": f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_",
                     "partition_detection": True
                 }
@@ -215,13 +215,13 @@ class CdkDatalakeIngestBigmagicStack(Stack):
                     '--S3_STAGE_PREFIX': f"s3://{self.s3_stage_bucket.bucket_name}/",
                     '--DYNAMO_LOGS_TABLE': self.dynamodb_logs_table.table_name,
                     '--PROCESS_ID': "ALL",  # Can be overridden at runtime
-                    '--SRC_DB_NAME': db_name,  # This crawler handles this specific database
+                    '--ENDPOINT_NAME': endpoint_name,  # This crawler handles this specific database
                     '--TEAM': self.PROJECT_CONFIG.app_config["team"],
                     '--DATA_SOURCE': self.PROJECT_CONFIG.app_config["datasource"],
                     '--REGION': self.PROJECT_CONFIG.region_name,
                     '--ENVIRONMENT': self.PROJECT_CONFIG.environment.value.lower(),
                     # Include aje_libs for dependencies
-                    '--extra-py-files': f"s3://{self.s3_artifacts_bucket.bucket_name}/athenea/bigmagic/aws-glue/layer/aje_libs.zip",
+                    '--extra-py-files': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.AWS_ARTIFACTS_GLUE_LAYER}/aje_libs.zip",
                     '--CRAWLER_CONFIG': json.dumps(crawler_config),
                     '--ARN_ROLE_CRAWLER': self.role_crawler.role_arn,
                 },
@@ -233,10 +233,10 @@ class CdkDatalakeIngestBigmagicStack(Stack):
             )
             
             crawler_job = self.builder.build_glue_job(crawler_job_config)
-            self.crawler_jobs[db_name] = crawler_job
+            self.crawler_jobs[endpoint_name] = crawler_job
             
             # Create output for this crawler job
-            CfnOutput(self, f"CrawlerJob{db_name}Name", value=crawler_job.job_name)
+            CfnOutput(self, f"CrawlerJob{endpoint_name}Name", value=crawler_job.job_name)
         
         # Create database-specific crawlers and catalog jobs
         self._create_glue_crawlers()
@@ -248,35 +248,35 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         import json
         
         # Read credentials to get database list that match current environment
-        db_names = []
-        with open('artifacts/configuration/csv/credentials.csv', newline='', encoding='utf-8') as creds_file:
+        endpoint_names = []
+        with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/credentials.csv', newline='', encoding='utf-8') as creds_file:
             creds_reader = csv.DictReader(creds_file, delimiter=';')
             for row in creds_reader:
                 # Only include databases that match the current environment
                 if row['ENV'].lower() == self.PROJECT_CONFIG.environment.value.lower():
-                    db_names.append(row['SRC_DB_NAME'])
+                    endpoint_names.append(row['ENDPOINT_NAME'])
         
         # Create crawlers and catalog jobs for each database
         self.crawlers = {}
         self.catalog_jobs = {}
         
-        for db_name in db_names:
+        for endpoint_name in endpoint_names:
             # Sanitize database name for use in resource names
-            safe_db_name = db_name.replace('_', '-').lower()
+            safe_endpoint_name = endpoint_name.replace('_', '-').lower()
             
             # 1. Create a Glue Data Catalog database for this source
-            database_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_{safe_db_name}"
+            database_name = f"{self.PROJECT_CONFIG.app_config['team'].lower()}_{self.PROJECT_CONFIG.app_config['datasource'].lower()}_{safe_endpoint_name}"
             
             # 2. Create a Glue crawler to populate the database
-            crawler_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}-crawler-{safe_db_name}"
-            crawler_tags = self._create_job_tags('Crawler', db_name)
+            crawler_name = f"{self.PROJECT_CONFIG.app_config['team'].lower()}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}-{safe_endpoint_name}-cw"
+            crawler_tags = self._create_job_tags('Crawler', endpoint_name)
             
             # Define the S3 target path for this database
-            s3_target_path = f"s3://{self.s3_stage_bucket.bucket_name}/{db_name}/"
+            s3_target_path = f"s3://{self.s3_stage_bucket.bucket_name}/{self.PROJECT_CONFIG.app_config['team'].lower()}/{self.PROJECT_CONFIG.app_config['datasource'].lower()}/{endpoint_name}/"
             
             # Create the crawler
             crawler = glue_cfn.CfnCrawler(
-                self, f"GlueCrawler{db_name}",
+                self, f"GlueCrawler{endpoint_name}",
                 name=crawler_name,
                 role=self.role_crawler.role_arn,
                 database_name=database_name,
@@ -304,13 +304,13 @@ class CdkDatalakeIngestBigmagicStack(Stack):
                     crawler.add_property_override(f"Tags.{key}", value)
             
             # Store crawler reference
-            self.crawlers[db_name] = crawler
-            CfnOutput(self, f"Crawler{db_name}Name", value=crawler.name)
+            self.crawlers[endpoint_name] = crawler
+            CfnOutput(self, f"Crawler{self.PROJECT_CONFIG.app_config['team']}{self.PROJECT_CONFIG.app_config['datasource']}{endpoint_name}Name", value=crawler.name)
             
             # 3. Create a catalog job to run after transformation
-            catalog_job = self._create_catalog_job(db_name)
-            self.catalog_jobs[db_name] = catalog_job
-            CfnOutput(self, f"CatalogJob{db_name}Name", value=catalog_job.job_name)
+            catalog_job = self._create_catalog_job(endpoint_name)
+            self.catalog_jobs[endpoint_name] = catalog_job
+            CfnOutput(self, f"CatalogJob{self.PROJECT_CONFIG.app_config['team']}{self.PROJECT_CONFIG.app_config['datasource']}{endpoint_name}Name", value=catalog_job.job_name)
 
     def _get_resource_arns(self):
         resources = {
@@ -554,9 +554,9 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         # Deploy CSV configuration files
         config = S3DeploymentConfig(
             f"BucketDeploymentCSVConfigurations{self.PROJECT_CONFIG.app_config['datasource'].lower()}",
-            [s3_deployment.Source.asset("artifacts/configuration")],
+            [s3_deployment.Source.asset(self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV)],
             self.s3_artifacts_bucket,
-            f"athenea/{self.PROJECT_CONFIG.app_config['datasource'].lower()}/configuration"
+            self.Paths.AWS_ARTIFACTS_CONFIGURE_CSV
         )
         self.builder.deploy_s3_bucket(config)
 
@@ -616,9 +616,9 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         
         # Get configuration values
         environment = self.PROJECT_CONFIG.environment.value.lower()  # dev/prod
-        project_name = self.PROJECT_CONFIG.app_config.get('project_name', 'datalake')  # Should be 'datalake'
-        team = self.PROJECT_CONFIG.app_config.get('team', 'athenea')  # Should be 'athenea'
-        data_source = self.PROJECT_CONFIG.app_config.get('datasource', 'bigmagic').lower()  # Should be 'bigmagic'
+        project_name = self.PROJECT_CONFIG.project_name.lower()
+        team = self.PROJECT_CONFIG.app_config['team'].lower()
+        data_source = self.PROJECT_CONFIG.app_config['datasource'].lower()
         
         # Create secret name following extract_data.py convention: {environment}/{project_name}/{team}/{data_source}
         secret_logical_name = f"{environment}/{project_name}/{team}/{data_source}"
@@ -654,12 +654,12 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         """Get instance information for a specific endpoint from credentials.csv"""
         try:
             current_env = self.PROJECT_CONFIG.environment.value.upper()
-            with open('artifacts/configuration/csv/credentials.csv', newline='', encoding='utf-8') as csvfile:
+            with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/credentials.csv', newline='', encoding='utf-8') as csvfile:
                 import csv
                 reader = csv.DictReader(csvfile, delimiter=';')
                 for row in reader:
                     # Match both SRC_DB_NAME and ENV
-                    if (row.get('SRC_DB_NAME', '') == endpoint and 
+                    if (row.get('ENDPOINT_NAME', '') == endpoint and 
                         row.get('ENV', '').upper() == current_env):
                         return row.get('INSTANCE', '')
             return ''

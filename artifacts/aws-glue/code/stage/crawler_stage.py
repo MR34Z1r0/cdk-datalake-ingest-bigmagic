@@ -52,7 +52,7 @@ def validate_arguments(args: Dict[str, str]) -> None:
     """Valida que todos los argumentos requeridos estén presentes"""
     required_args = [
         'S3_STAGE_PREFIX', 'DYNAMO_LOGS_TABLE', 
-        'PROCESS_ID', 'SRC_DB_NAME', 'TEAM', 'DATA_SOURCE', 
+        'PROCESS_ID', 'ENDPOINT_NAME', 'TEAM', 'DATA_SOURCE', 
         'REGION', 'ENVIRONMENT', 'CRAWLER_CONFIG', 'ARN_ROLE_CRAWLER'
     ]
     
@@ -96,7 +96,7 @@ try:
     # @params: [S3_STAGE_PREFIX, DYNAMO_LOGS_TABLE, etc.]
     args = getResolvedOptions(
         sys.argv, ['S3_STAGE_PREFIX', 'DYNAMO_LOGS_TABLE', 
-                  'PROCESS_ID', 'SRC_DB_NAME', 'TEAM', 'DATA_SOURCE', 
+                  'PROCESS_ID', 'ENDPOINT_NAME', 'TEAM', 'DATA_SOURCE', 
                   'REGION', 'ENVIRONMENT', 'CRAWLER_CONFIG', 'ARN_ROLE_CRAWLER']
     )
     
@@ -152,7 +152,7 @@ except Exception as e:
     raise CrawlerStageError(f"No se pudieron obtener los datos del endpoint: {str(e)}")
 
 data_catalog_database_name = f"{args['TEAM']}_{args['DATA_SOURCE']}_{endpoint_name}_stage".lower()
-data_catalog_crawler_name = data_catalog_database_name + "_crawler"
+data_catalog_crawler_name = data_catalog_database_name + "_cw"
 
 logger.info(f"Nombres generados - Database: {data_catalog_database_name}, Crawler: {data_catalog_crawler_name}")
 
@@ -418,8 +418,8 @@ def build_crawler_targets(total_list: List[str]) -> List[Dict[str, Any]]:
                 logger.debug(f"Tabla '{table_name}' no encontrada en configuración, usando nombre directo")
             
             # Construir ruta S3 usando el patrón estándar que usa light_transform
-            # Patrón: s3://bucket/team/data_source/src_db_name/table_name/
-            s3_path = f"{s3_target}{args['TEAM']}/{args['DATA_SOURCE']}/{args['SRC_DB_NAME']}/{stage_table_name}/"
+            # Patrón: s3://bucket/team/data_source/endpoint_name/table_name/
+            s3_path = f"{s3_target}{args['TEAM']}/{args['DATA_SOURCE']}/{args['ENDPOINT_NAME']}/{stage_table_name}/"
             
             data_source = {
                 'DeltaTables': [s3_path],
@@ -612,11 +612,11 @@ def get_tables_from_s3() -> List[str]:
         # Construir el prefijo de búsqueda
         team = args['TEAM']
         data_source = args['DATA_SOURCE']
-        src_db_name = args['SRC_DB_NAME']
+        endpoint_name = args['ENDPOINT_NAME']
         
-        # El patrón esperado es: s3://bucket/team/data_source/src_db_name/table_name/
-        # (ahora light_transform incluye src_db_name en el path stage)
-        search_prefix = f"{team}/{data_source}/{src_db_name}/"
+        # El patrón esperado es: s3://bucket/team/data_source/endpoint_name/table_name/
+        # (ahora light_transform incluye endpoint_name en el path stage)
+        search_prefix = f"{team}/{data_source}/{endpoint_name}/"
         logger.info(f"Buscando tablas con prefijo: {search_prefix}")
         
         # Extraer bucket name del s3_target
@@ -644,9 +644,9 @@ def get_tables_from_s3() -> List[str]:
             for common_prefix in page.get('CommonPrefixes', []):
                 prefix = common_prefix['Prefix']
                 # Extraer el nombre de la tabla del path
-                # Formato esperado: team/data_source/src_db_name/table_name/
+                # Formato esperado: team/data_source/endpoint_name/table_name/
                 parts = prefix.rstrip('/').split('/')
-                if len(parts) >= 4:  # Asegurar que tenemos suficientes partes (team/data_source/src_db_name/table_name)
+                if len(parts) >= 4:  # Asegurar que tenemos suficientes partes (team/data_source/endpoint_name/table_name)
                     table_name = parts[3]  # El nombre de la tabla está en la 4ta posición
                     tables.add(table_name)
                     logger.debug(f"Tabla encontrada: {table_name}")

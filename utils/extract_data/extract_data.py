@@ -989,7 +989,7 @@ class DataExtractor:
         partition_column = self.table_data.get('PARTITION_COLUMN', '').strip()
 
         # Full load with partitioning
-        if load_type == 'full' and table_type == 't' and partition_column:
+        if load_type == 'full' and table_type == 't' and partition_column != '':
             self.logger.info("Full load with partitioning based on min/max range")
 
             try:

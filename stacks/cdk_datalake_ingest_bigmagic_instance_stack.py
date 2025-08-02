@@ -18,13 +18,13 @@ import json
 class CdkDatalakeIngestBigmagicInstanceStack(Stack):
     
     def __init__(self, scope: Construct, construct_id: str, project_config, 
-                 instance_name: str, db_names: List[str], base_stack_outputs: Dict[str, str],
+                 instance_name: str, endpoint_names: List[str], base_stack_outputs: Dict[str, str],
                  group_stack_references: Dict[str, Dict[str, str]], **kwargs):
         super().__init__(scope, construct_id, **kwargs)
         
         self.PROJECT_CONFIG = project_config
         self.instance_name = instance_name
-        self.db_names = db_names
+        self.endpoint_names = endpoint_names
         self.base_stack_outputs = base_stack_outputs
         self.group_stack_references = group_stack_references
         
@@ -55,9 +55,9 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
     
     def _create_lambda_functions(self):
         self.lambda_functions = {}
-        for db_name in self.db_names:
-            lambda_function = self._create_invoke_step_function_lambda(db_name)
-            self.lambda_functions[db_name] = lambda_function
+        for endpoint_name in self.endpoint_names:
+            lambda_function = self._create_invoke_step_function_lambda(endpoint_name)
+            self.lambda_functions[endpoint_name] = lambda_function
             lambda_function.grant_invoke(self.step_function_role)
     
     def _update_step_function_permissions(self):
@@ -96,35 +96,35 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
     def _create_instance_step_function(self):
         parallel_branches = []
         
-        for db_name in self.db_names:
+        for endpoint_name in self.endpoint_names:
             construct_arn_task = sfn.Pass(
-                self, f"ConstructArn{db_name.replace('_', '').replace('-', '')}",
+                self, f"ConstructArn{endpoint_name.replace('_', '').replace('-', '')}",
                 parameters={
-                    "group_step_function_arn.$": f"States.Format('arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{db_name.lower()}_{{}}-sf', $.process_id)",
+                    "group_step_function_arn.$": f"States.Format('arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{endpoint_name.lower()}_{{}}-sf', $.process_id)",
                     "process_id.$": "$.process_id",
-                    "database": db_name,
+                    "endpoint_name": endpoint_name,
                     "instance": self.instance_name,
-                    "expected_step_function_name.$": f"States.Format('{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{db_name.lower()}_{{}}-sf', $.process_id)"
+                    "expected_step_function_name.$": f"States.Format('{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{endpoint_name.lower()}_{{}}-sf', $.process_id)"
                 },
-                result_path=f"$.{db_name.replace('-', '_').replace('.', '_')}_config"
+                result_path=f"$.{endpoint_name.replace('-', '_').replace('.', '_')}_config"
             )
             
-            invoke_lambda = self.lambda_functions[db_name]
+            invoke_lambda = self.lambda_functions[endpoint_name]
             
-            invoke_database_task = tasks.LambdaInvoke(
-                self, f"InvokeDatabase{db_name.replace('_', '').replace('-', '')}",
+            invoke_endpoint_name_task = tasks.LambdaInvoke(
+                self, f"InvokeEndPoint{endpoint_name.replace('_', '').replace('-', '')}",
                 lambda_function=invoke_lambda,
-                input_path=f"$.{db_name.replace('-', '_').replace('.', '_')}_config",
-                result_path=f"$.{db_name.replace('-', '_').replace('.', '_')}_result"
+                input_path=f"$.{endpoint_name.replace('-', '_').replace('.', '_')}_config",
+                result_path=f"$.{endpoint_name.replace('-', '_').replace('.', '_')}_result"
             )
             
-            database_chain = construct_arn_task.next(invoke_database_task)
-            parallel_branches.append(database_chain)
+            endpoint_chain = construct_arn_task.next(invoke_endpoint_name_task)
+            parallel_branches.append(endpoint_chain)
       
         if len(parallel_branches) > 1:
             parallel_state = sfn.Parallel(
-                self, "ParallelDatabaseProcessing",
-                comment=f"Process all databases in parallel for instance {self.instance_name}"
+                self, "ParallelEndPointProcessing",
+                comment=f"Process all endpoints in parallel for instance {self.instance_name}"
             )
             
             for branch in parallel_branches:
@@ -136,7 +136,7 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
         else:
             definition = sfn.Pass(
                 self, "NoProcesses",
-                comment=f"No databases found for instance {self.instance_name}"
+                comment=f"No endpoints found for instance {self.instance_name}"
             )
         
         instance_step_function_name = self.name_builder.build(

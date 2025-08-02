@@ -168,10 +168,10 @@ class DataExtractor:
                     break
             
             if not self.endpoint_data:
-                raise Exception(f"Database credentials not found for {src_db_name} in {environment}")
+                raise Exception(f"Endpoint credentials not found for {endpoint_name} in {environment}")
             
             # Add ENDPOINT_NAME for compatibility
-            self.endpoint_data['ENDPOINT_NAME'] = self.endpoint_data.get('SRC_DB_NAME', '')
+            self.endpoint_data['ENDPOINT_NAME'] = self.endpoint_data.get('ENDPOINT_NAME', '')
             
             # Apply old logic to determine LOAD_TYPE if not explicitly set
             if not self.table_data.get('LOAD_TYPE') or self.table_data.get('LOAD_TYPE', '').strip() == '':
@@ -1197,7 +1197,7 @@ if IS_AWS_GLUE:
         "ENDPOINT_NAME": args["ENDPOINT_NAME"]
     }
 region_name = config["REGION"]
-boto3.setup_default_session(profile_name='prod-compliance-admin', region_name=region_name)
+#boto3.setup_default_session(profile_name='prod-compliance-admin', region_name=region_name)
 
 logger = custom_logger(__name__)
 

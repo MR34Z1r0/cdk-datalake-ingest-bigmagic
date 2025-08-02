@@ -29,7 +29,7 @@ logger = logging.getLogger("LightTransform")
 logger.setLevel(os.environ.get("LOGGING", logging.INFO))
 
 args = getResolvedOptions(
-    sys.argv, ['JOB_NAME', 'S3_RAW_PREFIX', 'S3_STAGE_PREFIX', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'ARN_TOPIC_FAILED', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'SRC_DB_NAME', 'ENVIRONMENT'])
+    sys.argv, ['JOB_NAME', 'S3_RAW_PREFIX', 'S3_STAGE_PREFIX', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'ARN_TOPIC_FAILED', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'ENDPOINT_NAME', 'ENVIRONMENT'])
 
 # Load configuration from CSV files in S3
 def load_csv_from_s3(s3_path):
@@ -127,7 +127,7 @@ columns_data = clean_quotes_from_data(columns_data)
 
 # Filter data for current table and database
 table_name = args['TABLE_NAME']
-src_db_name = args['SRC_DB_NAME']
+endpoint_name = args['ENDPOINT_NAME']
 environment = args['ENVIRONMENT']
 
 # Find table configuration
@@ -143,16 +143,16 @@ if not table_data:
 # Find database credentials
 endpoint_data = None
 for row in credentials_data:
-    if (row.get('SRC_DB_NAME', '') == src_db_name and 
+    if (row.get('ENDPOINT_NAME', '') == endpoint_name and 
         row.get('ENV', '').upper() == environment.upper()):
         endpoint_data = row
         break
 
 if not endpoint_data:
-    raise Exception(f"Database credentials not found for {src_db_name} in {environment}")
+    raise Exception(f"EndPoint credentials not found for {endpoint_name} in {environment}")
 
 # Add ENDPOINT_NAME for compatibility
-endpoint_data['ENDPOINT_NAME'] = endpoint_data.get('SRC_DB_NAME', '')
+endpoint_data['ENDPOINT_NAME'] = endpoint_data.get('ENDPOINT_NAME', '')
 
 # Apply old logic to determine LOAD_TYPE if not explicitly set
 if not table_data.get('LOAD_TYPE') or table_data.get('LOAD_TYPE', '').strip() == '':
@@ -546,8 +546,8 @@ try:
     #DAYS_LIMA = '26'
     # Get clean table name (remove alias after space) for S3 raw path  
     clean_table_name = get_clean_table_name(table_data, table_name)
-    s3_raw_path = s3_source + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + clean_table_name + "/year=" + YEARS_LIMA + "/month=" + MONTHS_LIMA + "/day=" + DAYS_LIMA + "/"
-    s3_stage_path = s3_target + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + args['SRC_DB_NAME'] + "/" + table_name + "/"
+    s3_raw_path = s3_source + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + args['ENDPOINT_NAME'] + "/" + clean_table_name + "/year=" + YEARS_LIMA + "/month=" + MONTHS_LIMA + "/day=" + DAYS_LIMA + "/"
+    s3_stage_path = s3_target + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + args['ENDPOINT_NAME'] + "/" + table_name + "/"
     try:
         # Try to read as Parquet first
         try:
