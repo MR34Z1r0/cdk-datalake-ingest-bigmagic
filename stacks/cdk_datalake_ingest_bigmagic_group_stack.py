@@ -421,14 +421,14 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             # Create separate Map states for transform jobs (one for each branch)
             transform_map_state_extract_branch = sfn.Map(
                 self, "ProcessTransformJobsExtractBranch",
-                max_concurrency=15,
+                max_concurrency=30,
                 items_path="$.transform_job_configs.jobs",
                 result_path="$.transform_results"
             )
             
             transform_map_state_only_branch = sfn.Map(
                 self, "ProcessTransformJobsOnlyBranch",
-                max_concurrency=15,
+                max_concurrency=30,
                 items_path="$.transform_job_configs.jobs",
                 result_path="$.transform_results"
             )
