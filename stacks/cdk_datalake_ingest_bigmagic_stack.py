@@ -489,9 +489,9 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         definition = start_job.next(check_job_status)
         from aje_cdk_libs.models.configs import StepFunctionConfig
         
-        sf_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_base_job_executor"
+        sf_name = f"workflow_base_{self.PROJECT_CONFIG.app_config['datasource'].lower()}"
         
-        sf_tags = self._create_job_tags('BaseOrchestration')
+        sf_tags = self._create_job_tags('BaseWorkflow')
         
         sf_config = StepFunctionConfig(
             name=sf_name,

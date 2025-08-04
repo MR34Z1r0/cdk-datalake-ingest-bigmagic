@@ -12,6 +12,7 @@ from aje_cdk_libs.builders.resource_builder import ResourceBuilder
 from aje_cdk_libs.builders.name_builder import NameBuilder
 from aje_cdk_libs.models.configs import StepFunctionConfig, LambdaConfig
 from aje_cdk_libs.constants.services import Services
+from constants.paths import Paths
 import json
 
 
@@ -30,6 +31,7 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
         
         # Initialize builders
         self.builder = ResourceBuilder(self, project_config)
+        self.paths = Paths(project_config.app_config)
         self.name_builder = NameBuilder(project_config)
         
         self._create_iam_roles()
@@ -100,12 +102,12 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
             construct_arn_task = sfn.Pass(
                 self, f"ConstructArn{endpoint_name.replace('_', '').replace('-', '')}",
                 parameters={
-                    "group_step_function_arn.$": f"States.Format('arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{endpoint_name.lower()}_{{}}-sf', $.process_id)",
+                    "group_step_function_arn.$": f"States.Format('arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-workflow_extract_{self.PROJECT_CONFIG.app_config['datasource'].lower()}_{endpoint_name.lower()}_{{}}-sf', $.process_id)",
                     "process_id.$": "$.process_id",
                     "endpoint_name": endpoint_name,
                     "run_extract": False,
                     "instance": self.instance_name,
-                    "expected_step_function_name.$": f"States.Format('{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{endpoint_name.lower()}_{{}}-sf', $.process_id)"
+                    "expected_step_function_name.$": f"States.Format('{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-workflow_extract_{self.PROJECT_CONFIG.app_config['datasource'].lower()}_{endpoint_name.lower()}_{{}}-sf', $.process_id)"
                 },
                 result_path=f"$.{endpoint_name.replace('-', '_').replace('.', '_')}_config"
             )
@@ -142,7 +144,7 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
         
         instance_step_function_name = self.name_builder.build(
             service=Services.STEP_FUNCTION,
-            descriptive_name=f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_instance_{self.instance_name}"
+            descriptive_name=f"workflow_instance_{self.PROJECT_CONFIG.app_config['datasource'].lower()}_{self.instance_name}"
         )
         
         self.instance_step_function = sfn.StateMachine(
@@ -159,16 +161,14 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
             description=f"Step Function ARN for instance {self.instance_name}"
         )
 
-    def _create_invoke_step_function_lambda(self, db_name: str):
-        short_db_name = db_name.replace('_', '').replace('-', '').replace('.', '')[:10]
-        descriptive_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_invoke_{short_db_name}"
-        
-        lambda_script_path = "artifacts/aws-lambda/invoke_step_function"
+    def _create_invoke_step_function_lambda(self, endpoint_name: str):
+        short_endpoint_name = endpoint_name.replace('_', '').replace('-', '').replace('.', '')[:10]
+        descriptive_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_invoke_{short_endpoint_name}"
         
         lambda_config = LambdaConfig(
             function_name=descriptive_name,
             handler="invoke_step_function.lambda_handler",
-            code_path=lambda_script_path,
+            code_path=f"{self.paths.LOCAL_ARTIFACTS_LAMBDA_CODE_RAW}",
             timeout=Duration.minutes(15),
             runtime=_lambda.Runtime.PYTHON_3_9,
             role=self.lambda_role
@@ -206,8 +206,8 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
                                 "states:GetExecutionHistory"
                             ],
                             resources=[
-                                f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_*",
-                                f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:execution:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_*",
+                                f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-workflow_extract_{self.PROJECT_CONFIG.app_config['datasource'].lower()}_*",
+                                f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:execution:{self.PROJECT_CONFIG.enterprise}-{self.PROJECT_CONFIG.environment.value.lower()}-{self.PROJECT_CONFIG.project_name}-workflow_extract_{self.PROJECT_CONFIG.app_config['datasource'].lower()}_*",
                                 f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:CdkDatalakeIngestBigmagicGroupStack-*",
                                 f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:execution:CdkDatalakeIngestBigmagicGroupStack-*"
                             ]

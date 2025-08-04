@@ -314,7 +314,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         registry_key = (logical_name, self.endpoint_name)
         if registry_key in self.shared_job_registry:
             job_info = self.shared_job_registry[registry_key]
-            # Create job references for cross-stack orchestration
+            # Create job references for cross-stack workflow
             class JobReference:
                 def __init__(self, job_name):
                     self.job_name = job_name
@@ -331,7 +331,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             return None
 
     def _create_step_function(self):
-        """Create orchestration Step Function for all group jobs with extract flag control"""
+        """Create workflow Step Function for all group jobs with extract flag control"""
         import aws_cdk.aws_stepfunctions as sfn
         import aws_cdk.aws_stepfunctions_tasks as tasks
         
@@ -599,12 +599,12 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             definition = sfn.Pass(self, "NoTablesToProcess")
         
         # Create the Step Function that uses the base Step Function
-        sf_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_orchestrate_extract_{self.endpoint_name.lower()}_{self.process_id}"
+        sf_name = f"workflow_extract_{self.PROJECT_CONFIG.app_config['datasource'].lower()}_{self.endpoint_name.lower()}_{self.process_id}"
         
         # Use aje_cdk_libs approach for consistency with base stack
         from aje_cdk_libs.models.configs import StepFunctionConfig
         
-        step_function_tags = self._create_job_tags('Orchestration')
+        step_function_tags = self._create_job_tags('Workflow')
         
         sf_config = StepFunctionConfig(
             name=sf_name,
