@@ -293,11 +293,11 @@ def transform_df(raw_df, function_name, parameters, column_name, data_type):
     # logger.info(f"lista de parametros: {list_params}")
     if function_name == 'fn_transform_Concatenate':
         columns_to_concatenate = [col_name.strip() for col_name in list_params]
-        return raw_df.withColumn(column_name, concat_ws("|", *[col(col_name) for col_name in columns_to_concatenate]).cast(data_type))
+        return raw_df.withColumn(column_name, concat_ws("|", *[trim(col(col_name)) for col_name in columns_to_concatenate]).cast(data_type))
     
     elif function_name == 'fn_transform_Concatenate_ws':
         columns_to_concatenate = [col_name.strip() for col_name in list_params[:-1]]
-        return raw_df.withColumn(column_name, concat_ws(list_params[-1], *[col(col_name) for col_name in columns_to_concatenate]).cast(data_type))
+        return raw_df.withColumn(column_name, concat_ws(list_params[-1], *[trim(col(col_name)) for col_name in columns_to_concatenate]).cast(data_type))
     
     elif function_name == 'fn_transform_ByteMagic':
         origin_column = list_params[0]

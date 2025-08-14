@@ -168,10 +168,10 @@ class DataExtractor:
                     break
             
             if not self.endpoint_data:
-                raise Exception(f"Endpoint credentials not found for {endpoint_name} in {environment}")
+                raise Exception(f"Database credentials not found for {src_db_name} in {environment}")
             
             # Add ENDPOINT_NAME for compatibility
-            self.endpoint_data['ENDPOINT_NAME'] = self.endpoint_data.get('ENDPOINT_NAME', '')
+            self.endpoint_data['ENDPOINT_NAME'] = self.endpoint_data.get('SRC_DB_NAME', '')
             
             # Apply old logic to determine LOAD_TYPE if not explicitly set
             if not self.table_data.get('LOAD_TYPE') or self.table_data.get('LOAD_TYPE', '').strip() == '':
@@ -222,12 +222,11 @@ class DataExtractor:
         """Initialize table and endpoint data from loaded CSV configurations"""
         try:
             # Set S3 path using loaded data
-            team = self.team
-            data_source = self.data_source
-            endpoint_name = self.endpoint_data['ENDPOINT_NAME']
+            team = self.endpoint_data.get('TEAM', self.team)
+            data_source = self.endpoint_data.get('DATA_SOURCE', self.data_source)
             # Get clean table name (remove alias after space) for S3 path
             clean_table_name = self._get_clean_table_name()
-            self.day_route = f"{team}/{data_source}/{endpoint_name}/{clean_table_name}/year={YEARS_LIMA}/month={MONTHS_LIMA}/day={DAYS_LIMA}/"
+            self.day_route = f"{team}/{data_source}/{clean_table_name}/year={YEARS_LIMA}/month={MONTHS_LIMA}/day={DAYS_LIMA}/"
             
             self.s3_raw_path = self.config['S3_RAW_PREFIX'] + self.day_route
             self.bucket = self.config['S3_RAW_PREFIX'].split("/")[2]
@@ -280,6 +279,11 @@ class DataExtractor:
                 port=int(self.port) if self.port else None,
                 **additional_params
             )
+            self.logger.info(f"server: {self.server}")
+            self.logger.info(f"port: {self.port}")
+            self.logger.info(f"db_name: {self.db_name}")
+            self.logger.info(f"username: {self.username}")
+            self.logger.info(f"password: {password}")
             self.logger.info(f"Database connection initialized for {self.db_type} database")
             self.logger.info(f"driver: {self.driver}")
             self.logger.info(f"url: {self.url}")
@@ -634,7 +638,7 @@ class DataExtractor:
             parquet_buffer = io.BytesIO()
             df.to_parquet(parquet_buffer, index=False, engine='pyarrow')
             parquet_bytes = parquet_buffer.getvalue()
-            
+             
             if not parquet_key.endswith('.parquet'):
                 parquet_key += '.parquet'
             
@@ -650,7 +654,7 @@ class DataExtractor:
             return f"s3://{bucket_name}/{parquet_key}"
             
         except Exception as e:
-            self.logger.error(f"Error writing DataFrame to S3 as Parquet: {str(e)}")
+            self.logger.error(f"Error writing DataFrame to S3 as Parquet: {str(e)}") 
 
     def _process_columns_field(self):
         """Process the COLUMNS field to handle potential SQL Server identifier length issues"""
@@ -990,7 +994,7 @@ class DataExtractor:
         partition_column = self.table_data.get('PARTITION_COLUMN', '').strip()
 
         # Full load with partitioning
-        if load_type == 'full' and table_type == 't' and partition_column != '':
+        if load_type == 'full' and table_type == 't' and partition_column:
             self.logger.info("Full load with partitioning based on min/max range")
 
             try:
@@ -1234,7 +1238,7 @@ logger.info(f"EndPoint: {config['ENDPOINT_NAME']}")
 logger.info("=" * 80)
 
 logger.info("Starting data extraction process")
-logger.info(f"Configuration: {config}")
+logger.info(f"Configuration: {config}") 
 
 try:
     # Create extractor instance
