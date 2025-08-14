@@ -28,8 +28,9 @@
             "local": "./artifacts",
             "aws_lambda_layers": {
               "layer_aje_libs": "arn:aws:lambda:${region}:${account}:layer:layer_aje_libs:3",
-              "layer_pyodbc": "arn:aws:lambda:${region}:${account}:layer:layer_pyodbc:2"
-            }              
+              "layer_pyodbc": "arn:aws:lambda:${region}:${account}:layer:layer_pyodbc:2",
+              "layer_pytz": "arn:aws:lambda:${region}:${account}:layer:ajedevpytzlayer789CA971:1"
+            }
           },
           "topic_notifications": {
               "failed": "sofia-dev-datalake-failed-sns",

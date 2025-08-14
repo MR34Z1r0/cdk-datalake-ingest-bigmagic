@@ -1,19 +1,34 @@
-from aws_cdk import Stack, Duration, aws_stepfunctions as sfn
-from constructs import Construct
-from aje_cdk_libs.builders.resource_builder import ResourceBuilder
-from aje_cdk_libs.builders.name_builder import NameBuilder
-from aje_cdk_libs.constants.services import Services
-from aje_cdk_libs.models.configs import GlueJobConfig, StepFunctionConfig
-from constants.paths import Paths
 import csv
 import json
 
+from aws_cdk import (
+    Stack,
+    Duration,
+    aws_dynamodb as dynamodb,
+    aws_iam as iam,
+    aws_lambda as _lambda,
+    aws_s3 as s3,
+    aws_sns as sns,
+    aws_stepfunctions as sfn,
+    aws_stepfunctions_tasks as tasks,
+)
+import aws_cdk.aws_glue_alpha as glue
+from constructs import Construct
+
+from aje_cdk_libs.builders.name_builder import NameBuilder
+from aje_cdk_libs.builders.resource_builder import ResourceBuilder
+from aje_cdk_libs.constants.services import Services
+from aje_cdk_libs.models.configs import GlueJobConfig, StepFunctionConfig, LambdaConfig
+from constants.paths import Paths
+from constants.layers import Layers
+
 class CdkDatalakeIngestBigmagicGroupStack(Stack):
-    def __init__(self, scope: Construct, construct_id: str, project_config, process_id, endpoint_name, base_stack_outputs, shared_table_info=None, shared_job_registry=None, **kwargs):
+    def __init__(self, scope: Construct, construct_id: str, project_config, process_id, endpoint_name, base_stack_outputs, shared_table_info=None, shared_job_registry=None, instance=None, **kwargs):
         super().__init__(scope, construct_id, **kwargs)
         self.PROJECT_CONFIG = project_config
         self.process_id = process_id
         self.endpoint_name = endpoint_name
+        self.instance = instance
         self.base_stack_outputs = base_stack_outputs
         self.shared_table_info = shared_table_info or {}
         self.shared_job_registry = shared_job_registry or {}
@@ -21,18 +36,18 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         self.builder = ResourceBuilder(self, self.PROJECT_CONFIG)
         self.name_builder = NameBuilder(self.PROJECT_CONFIG)
         self.Paths = Paths(self.PROJECT_CONFIG.app_config)
+        self.Layers = Layers(self.PROJECT_CONFIG.app_config, project_config.region_name, project_config.account_id)
 
         
         self.glue_jobs = []
-        self.job_name_registry = []  # Store actual job names for Step Function creation
+        self.job_name_registry = []
         self.columns = self._read_columns_csv()
         self._import_shared_resources()
         self._create_deduplicated_glue_jobs()
         self._create_step_function()
 
     def _import_shared_resources(self):
-        from aws_cdk import aws_s3 as s3, aws_dynamodb as dynamodb, aws_sns as sns, aws_iam as iam, aws_stepfunctions as sfn, aws_glue as glue
-        
+
         self.s3_artifacts_bucket = s3.Bucket.from_bucket_name(
             self, "ArtifactsBucket", self.base_stack_outputs["ArtifactsBucketName"])
         self.s3_raw_bucket = s3.Bucket.from_bucket_name(
@@ -41,8 +56,6 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             self, "StageBucket", self.base_stack_outputs["StageBucketName"])
         self.s3_landing_bucket = s3.Bucket.from_bucket_name(
             self, "LandingBucket", self.base_stack_outputs["LandingBucketName"])
-        self.s3_analytics_bucket = s3.Bucket.from_bucket_name(
-            self, "AnalyticsBucket", self.base_stack_outputs["AnalyticsBucketName"])
         
         self.dynamo_logs_table = dynamodb.Table.from_table_name(
             self, "LogsTable", self.base_stack_outputs["DynamoLogsTableName"])
@@ -92,24 +105,24 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         seen = set()
         self.glue_jobs = []
         self.job_name_registry = []  # Store actual job names for Step Function creation
-        
+
         for row in tables:
             key = (row['SOURCE_SCHEMA'], row['SOURCE_TABLE'], self.endpoint_name)
             if key in seen:
                 continue
             seen.add(key)
-            
+
             logical_name = row['STAGE_TABLE_NAME']
             process_ids = [int(pid.strip()) for pid in row['PROCESS_ID'].split(',')]
             is_shared = len(process_ids) > 1
-            
+
             # Determine if this stack should create or reference the jobs
             if is_shared:
                 is_primary_for_table = self.shared_table_info.get(logical_name, False)
                 should_create_jobs = is_primary_for_table
             else:
                 should_create_jobs = True
-            
+
             if should_create_jobs:
                 # Create the actual jobs in this stack
                 job_info = self._create_jobs_for_table(row, logical_name, credentials)
@@ -132,87 +145,32 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                         'table_name': logical_name
                     })
 
-    def _create_jobs_for_table(self, row, logical_name, credentials):
-        import aws_cdk.aws_glue_alpha as glue
-        import json
-        from aje_cdk_libs.models.configs import GlueJobConfig
-        
-        table_columns = [col for col in self.columns if col['TABLE_NAME'].upper() == logical_name.upper()]
-        
-        table_config = {
-            'SOURCE_SCHEMA': row.get('SOURCE_SCHEMA', ''),
-            'SOURCE_TABLE': row.get('SOURCE_TABLE', ''),
-            'STAGE_TABLE_NAME': row.get('STAGE_TABLE_NAME', ''),
-            'LOAD_TYPE': row.get('LOAD_TYPE', 'full'),
-            'ID_COLUMN': row.get('ID_COLUMN', ''),
-            'FILTER_COLUMN': row.get('FILTER_COLUMN', ''),
-            'FILTER_EXP': row.get('FILTER_EXP', ''),
-            'SOURCE_TABLE_TYPE': row.get('SOURCE_TABLE_TYPE', 'm'),
-            'DELAY_INCREMENTAL_INI': row.get('DELAY_INCREMENTAL_INI', '-2'),
-            'COLUMNS': row.get('COLUMNS', '')
-        }
-        
-        db_config = {
-            'SRC_SERVER_NAME': credentials.get('SRC_SERVER_NAME', ''),
-            'SRC_DB_NAME': credentials.get('SRC_DB_NAME', ''),
-            'SRC_DB_USERNAME': credentials.get('SRC_DB_USERNAME', ''),
-            'SRC_DB_SECRET': credentials.get('SRC_DB_SECRET', ''),
-            'BD_TYPE': credentials.get('BD_TYPE', 'mssql'),
-            'DB_PORT_NUMBER': credentials.get('DB_PORT_NUMBER', '1433')
-        }
-        
-        # Check for Glue connections - prioritize base stack connection over CSV connection
-        connections = []
-        
-        # First, check if base stack has provided the extract connection
-        # Construct the expected output key based on the datasource from config
+    def _create_jobs_for_table(self, row, logical_name, credentials): 
+        connections = [] 
         datasource = self.PROJECT_CONFIG.app_config['datasource'].lower()
         connection_logical_name = f"{datasource}-extract-connection"
         clean_name = connection_logical_name.replace('-', '').replace('_', '').title()
         extract_connection_key = f"GlueConnection{clean_name}Name"
         
-        if extract_connection_key in self.base_stack_outputs:
-            # Import the connection by name to get an IConnection object
-            import aws_cdk.aws_glue_alpha as glue
+        if extract_connection_key in self.base_stack_outputs: 
             connection_name = self.base_stack_outputs[extract_connection_key]
             connection_obj = glue.Connection.from_connection_name(
                 self, f"ImportedExtractConnection{self.endpoint_name}{logical_name}",
                 connection_name
             )
-            connections = [connection_obj]
-        
-        # Fallback: check if a connection name is provided in credentials CSV (legacy support)
-        elif credentials.get('GLUE_CONNECTION_NAME'):
-            import aws_cdk.aws_glue_alpha as glue
+            connections = [connection_obj] 
+        elif credentials.get('GLUE_CONNECTION_NAME'): 
             connection_name = credentials.get('GLUE_CONNECTION_NAME')
             connection_obj = glue.Connection.from_connection_name(
-                self, f"ImportedConnectionCSV-{logical_name}",
+                self, f"ImportedConnectionCSV{logical_name}",
                 connection_name
             )
             connections = [connection_obj]
-        
-        # Prepare columns config - convert to the format expected by scripts
-        columns_config = []
-        for col in table_columns:
-            columns_config.append({
-                'COLUMN_NAME': col.get('COLUMN_NAME', ''),
-                'COLUMN_ID': col.get('COLUMN_ID', ''),
-                'NEW_DATA_TYPE': col.get('NEW_DATA_TYPE', 'string'),
-                'TRANSFORMATION': col.get('TRANSFORMATION', ''),
-                'IS_PARTITION': col.get('IS_PARTITION', '').lower() == 'true',
-                'IS_ID': col.get('IS_ID', '').lower() == 'true',
-                'IS_ORDER_BY': col.get('IS_ORDER_BY', '').lower() == 'true',
-                'IS_FILTER_DATE': col.get('IS_FILTER_DATE', '').lower() == 'true'
-            })
-        
-        # Extract job - Include datasource and endpoint name to avoid conflicts between endpoint names
-        extract_job_descriptive_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_extract_{logical_name.lower()}_{self.endpoint_name.lower()}"
-        # Generate the actual job name that will be created by CDK libs
-        extract_job_name = self.name_builder.build(Services.GLUE_JOB, extract_job_descriptive_name)
+          
         extract_tags = self._create_job_tags('Extract')
-        
+
         extract_job_config = GlueJobConfig(
-            job_name=extract_job_descriptive_name,  # Pass only the descriptive part to ResourceBuilder
+            job_name=f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_extract_{logical_name.lower()}_{self.endpoint_name.lower()}",
             executable=glue.JobExecutable.python_shell(
                 glue_version=glue.GlueVersion.V1_0,
                 python_version=glue.PythonVersion.THREE_NINE,
@@ -222,13 +180,13 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                 )
             ),
             default_arguments={
-                '--S3_RAW_PREFIX': f"s3://{self.s3_raw_bucket.bucket_name}/",
+                '--S3_RAW_BUCKET': self.s3_raw_bucket.bucket_name,
                 '--ARN_TOPIC_FAILED': self.sns_failed_topic.topic_arn,
                 '--ARN_TOPIC_SUCCESS': self.sns_success_topic.topic_arn,
                 '--PROJECT_NAME': self.PROJECT_CONFIG.project_name,
                 '--TEAM': self.PROJECT_CONFIG.app_config['team'],
                 '--DATA_SOURCE': self.PROJECT_CONFIG.app_config['datasource'],
-                '--ENVIRONMENT': self.PROJECT_CONFIG.environment.value.upper(),
+                '--ENVIRONMENT': self.PROJECT_CONFIG.environment.value,
                 '--REGION': self.PROJECT_CONFIG.region_name,
                 '--TABLE_NAME': logical_name,
                 '--DYNAMO_LOGS_TABLE': self.dynamo_logs_table.table_name,
@@ -242,6 +200,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                 '--CREDENTIALS_CSV_S3': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.AWS_ARTIFACTS_CONFIGURE_CSV}/credentials.csv",
                 '--COLUMNS_CSV_S3': f"s3://{self.s3_artifacts_bucket.bucket_name}/{self.Paths.AWS_ARTIFACTS_CONFIGURE_CSV}/columns.csv"
             },
+            max_capacity = int(row.get('JOB_EXTRACT_MAX_CAPACITY')) if row.get('JOB_EXTRACT_MAX_CAPACITY', '') != '' else None,
             continuous_logging=glue.ContinuousLoggingProps(enabled=True),
             timeout=Duration.minutes(60),
             max_concurrent_runs=20,
@@ -251,15 +210,10 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         )
         extract_job = self.builder.build_glue_job(extract_job_config)
         self.glue_jobs.append(extract_job)
-        
-        # Light transform job - Include datasource and endpoint name to avoid conflicts between endpoint names
-        light_job_descriptive_name = f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_light_transform_{logical_name.lower()}_{self.endpoint_name.lower()}"
-        # Generate the actual job name that will be created by CDK libs
-        light_job_name = self.name_builder.build(Services.GLUE_JOB, light_job_descriptive_name)
         light_transform_tags = self._create_job_tags('LightTransform')
-        
+
         light_job_config = GlueJobConfig(
-            job_name=light_job_descriptive_name,  # Pass only the descriptive part to ResourceBuilder
+            job_name=f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_light_transform_{logical_name.lower()}_{self.endpoint_name.lower()}",  # Pass only the descriptive part to ResourceBuilder
             executable=glue.JobExecutable.python_etl(
                 glue_version=glue.GlueVersion.V4_0,
                 python_version=glue.PythonVersion.THREE,
@@ -269,14 +223,14 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                 )
             ),
             default_arguments={
-                '--S3_RAW_PREFIX': f"s3://{self.s3_raw_bucket.bucket_name}/",
-                '--S3_STAGE_PREFIX': f"s3://{self.s3_stage_bucket.bucket_name}/",
+                '--S3_RAW_BUCKET': self.s3_raw_bucket.bucket_name,
+                '--S3_STAGE_BUCKET': self.s3_stage_bucket.bucket_name,
                 '--ARN_TOPIC_FAILED': self.sns_failed_topic.topic_arn,
                 '--ARN_TOPIC_SUCCESS': self.sns_success_topic.topic_arn,
                 '--PROJECT_NAME': self.PROJECT_CONFIG.project_name,
                 '--TEAM': self.PROJECT_CONFIG.app_config['team'],
                 '--DATA_SOURCE': self.PROJECT_CONFIG.app_config['datasource'],
-                '--ENVIRONMENT': self.PROJECT_CONFIG.environment.value.upper(),
+                '--ENVIRONMENT': self.PROJECT_CONFIG.environment.value,
                 '--REGION': self.PROJECT_CONFIG.region_name,
                 '--TABLE_NAME': logical_name,
                 '--DYNAMO_LOGS_TABLE': self.dynamo_logs_table.table_name,
@@ -300,11 +254,11 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         )
         light_job = self.builder.build_glue_job(light_job_config)
         self.glue_jobs.append(light_job)
-        
+
         # Return job information for the registry - use the actual CDK-generated names
         return {
-            'extract_job_name': extract_job_name,  # Use the full CDK-generated name
-            'light_job_name': light_job_name,      # Use the full CDK-generated name
+            'extract_job_name': extract_job.job_name,  # Use the full CDK-generated name
+            'light_job_name': light_job.job_name,      # Use the full CDK-generated name
             'extract_job': extract_job,
             'light_job': light_job
         }
@@ -314,16 +268,16 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         registry_key = (logical_name, self.endpoint_name)
         if registry_key in self.shared_job_registry:
             job_info = self.shared_job_registry[registry_key]
-            # Create job references for cross-stack workflow
+
             class JobReference:
                 def __init__(self, job_name):
                     self.job_name = job_name
                     # Add type flag to identify this as a JobReference
                     self.is_job_reference = True
-            
+
             extract_job_ref = JobReference(job_info['extract_job_name'])
             light_job_ref = JobReference(job_info['light_job_name'])
-            
+
             self.glue_jobs.extend([extract_job_ref, light_job_ref])
             return job_info  # Return the job info for registry tracking
         else:
@@ -332,10 +286,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
 
     def _create_step_function(self):
         """Create workflow Step Function for all group jobs with extract flag control"""
-        import aws_cdk.aws_stepfunctions as sfn
-        import aws_cdk.aws_stepfunctions_tasks as tasks
         
-        # Extract job names from our registry (not CDK objects)
         job_configs = []
         extract_jobs = []
         light_transform_jobs = []
@@ -345,7 +296,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             extract_job_name = job_info['extract_job_name']
             light_job_name = job_info['light_job_name']
             table_name = job_info['table_name']
-            
+
             extract_jobs.append(extract_job_name)
             light_transform_jobs.append(light_job_name)
             
@@ -384,13 +335,12 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                 },
                 result_path="$.extract_job_configs"
             )
-            
             # Create a Map state for extract jobs with concurrency control
             extract_map_state = sfn.Map(
                 self, "ProcessExtractJobs",
                 max_concurrency=15,
                 items_path="$.extract_job_configs.jobs",
-                result_path="$.extract_results"
+                result_path=None  # Discard Map output, keep input
             )
             
             # Create separate Pass states for transform job configs (one for each branch)
@@ -403,7 +353,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                     "execution_start.$": "$$.Execution.StartTime",
                     "job_type": "transform"
                 },
-                result_path="$.transform_job_configs"
+                result_path=None
             )
             
             prepare_transform_jobs_only_branch = sfn.Pass(
@@ -415,21 +365,21 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                     "execution_start.$": "$$.Execution.StartTime",
                     "job_type": "transform"
                 },
-                result_path="$.transform_job_configs"
+                result_path=None  # Overwrite input with this object
             )
             
             # Create separate Map states for transform jobs (one for each branch)
             transform_map_state_extract_branch = sfn.Map(
                 self, "ProcessTransformJobsExtractBranch",
-                max_concurrency=30,
-                items_path="$.transform_job_configs.jobs",
+                max_concurrency=60,
+                items_path="$.jobs",
                 result_path="$.transform_results"
             )
             
             transform_map_state_only_branch = sfn.Map(
                 self, "ProcessTransformJobsOnlyBranch",
-                max_concurrency=30,
-                items_path="$.transform_job_configs.jobs",
+                max_concurrency=60,
+                items_path="$.jobs",
                 result_path="$.transform_results"
             )
             
@@ -580,7 +530,8 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             )
             
             handle_map_failures = sfn.Pass(
-                self, "HandleMapFailures",
+                self,
+                "HandleMapFailures",
                 parameters={
                     "error_details.$": "$",
                     "process_id": str(self.process_id),
@@ -597,13 +548,10 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             transform_map_state_only_branch.add_catch(handle_map_failures, errors=["States.ALL"], result_path="$.transform_error")
         else:
             definition = sfn.Pass(self, "NoTablesToProcess")
-        
+
         # Create the Step Function that uses the base Step Function
         sf_name = f"workflow_extract_{self.PROJECT_CONFIG.app_config['datasource'].lower()}_{self.endpoint_name.lower()}_{self.process_id}"
-        
-        # Use aje_cdk_libs approach for consistency with base stack
-        from aje_cdk_libs.models.configs import StepFunctionConfig
-        
+
         step_function_tags = self._create_job_tags('Workflow')
         
         sf_config = StepFunctionConfig(
@@ -613,13 +561,13 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             role=self.role_step_function,
             tags=step_function_tags
         )
-        
+
         self.step_function = self.builder.build_step_function(sf_config)
 
     def _read_tables_csv(self):
         """Load tables for current process_id with STATUS = 'a'"""
         tables = []
-        
+
         with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/tables.csv', newline='', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile, delimiter=';')
             for row in reader:
@@ -642,19 +590,18 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         return tables
 
     def _read_credentials_csv(self):
-        """Load credentials for current src_db_name and environment"""
+        """Load credentials for current endpoint_name and environment"""
         creds = None
-        current_env = self.PROJECT_CONFIG.environment.value.upper()  # Get current environment (DEV/PROD)
-        
+        current_env = self.PROJECT_CONFIG.environment.value# Get current environment (DEV/PROD)
+
         with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/credentials.csv', newline='', encoding='utf-8') as csvfile:
             reader = csv.DictReader(csvfile, delimiter=';')
             for row in reader:
-                # Match both SRC_DB_NAME and ENV
-                if (row['ENDPOINT_NAME'] == self.endpoint_name and 
-                    row.get('ENV', '').upper() == current_env):
+                # Match both ENDPOINT_NAME and ENV
+                if (row['ENDPOINT_NAME'] == self.endpoint_name and row.get('ENV', '').upper() == current_env):
                     creds = row
                     break
-            
+
         return creds
 
     def _read_columns_csv(self):

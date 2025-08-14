@@ -51,7 +51,7 @@ class CrawlerStageError(Exception):
 def validate_arguments(args: Dict[str, str]) -> None:
     """Valida que todos los argumentos requeridos estén presentes"""
     required_args = [
-        'S3_STAGE_PREFIX', 'DYNAMO_LOGS_TABLE', 
+        'S3_STAGE_BUCKET', 'DYNAMO_LOGS_TABLE', 
         'PROCESS_ID', 'ENDPOINT_NAME', 'TEAM', 'DATA_SOURCE', 
         'REGION', 'ENVIRONMENT', 'CRAWLER_CONFIG', 'ARN_ROLE_CRAWLER'
     ]
@@ -93,9 +93,8 @@ def retry_on_failure(max_retries: int = MAX_RETRIES, delay: int = RETRY_DELAY):
 try:
     logger.info("Iniciando CrawlerStage...")
     
-    # @params: [S3_STAGE_PREFIX, DYNAMO_LOGS_TABLE, etc.]
     args = getResolvedOptions(
-        sys.argv, ['S3_STAGE_PREFIX', 'DYNAMO_LOGS_TABLE', 
+        sys.argv, ['S3_STAGE_BUCKET', 'DYNAMO_LOGS_TABLE', 
                   'PROCESS_ID', 'ENDPOINT_NAME', 'TEAM', 'DATA_SOURCE', 
                   'REGION', 'ENVIRONMENT', 'CRAWLER_CONFIG', 'ARN_ROLE_CRAWLER']
     )
@@ -130,7 +129,7 @@ except Exception as e:
     logger.error(f"Error procesando la configuración del crawler: {str(e)}")
     raise CrawlerStageError(f"No se pudo procesar la configuración del crawler: {str(e)}")
 
-s3_target = args['S3_STAGE_PREFIX']
+s3_target = args['S3_STAGE_BUCKET']
 arn_role_crawler = args['ARN_ROLE_CRAWLER']
 endpoint_name = crawler_config.get('endpoint_name')
 
@@ -206,8 +205,6 @@ def get_database_data_catalog(database_data_catalog_name: str) -> bool:
     except Exception as e:
         logger.error(f"Error inesperado verificando base de datos: {str(e)}")
         return False
-
-
 
 @retry_on_failure()
 def grant_permissions_to_database_lakeformation(job_role_arn_name: str, database_data_catalog_name: str) -> None:
@@ -419,7 +416,7 @@ def build_crawler_targets(total_list: List[str]) -> List[Dict[str, Any]]:
             
             # Construir ruta S3 usando el patrón estándar que usa light_transform
             # Patrón: s3://bucket/team/data_source/endpoint_name/table_name/
-            s3_path = f"{s3_target}{args['TEAM']}/{args['DATA_SOURCE']}/{args['ENDPOINT_NAME']}/{stage_table_name}/"
+            s3_path = f"s3://{s3_target}/{args['TEAM']}/{args['DATA_SOURCE']}/{args['ENDPOINT_NAME']}/{stage_table_name}/"
             
             data_source = {
                 'DeltaTables': [s3_path],
@@ -618,26 +615,12 @@ def get_tables_from_s3() -> List[str]:
         # (ahora light_transform incluye endpoint_name en el path stage)
         search_prefix = f"{team}/{data_source}/{endpoint_name}/"
         logger.info(f"Buscando tablas con prefijo: {search_prefix}")
-        
-        # Extraer bucket name del s3_target
-        if s3_target.startswith('s3://'):
-            # Extraer solo el nombre del bucket, no incluir paths adicionales
-            s3_path = s3_target.replace('s3://', '')
-            bucket_name = s3_path.split('/')[0]  # Solo tomar la primera parte (bucket name)
-        else:
-            # Si no tiene s3://, asumir que es solo el bucket name
-            bucket_name = s3_target.split('/')[0].rstrip('/')
-        
-        logger.info(f"Bucket S3: {bucket_name}")
-        logger.info(f"S3 target original: {s3_target}")
-        
-        # Listar objetos en S3
-        import boto3
-        s3_client = boto3.client('s3', region_name=args['REGION'])
-        
+         
+        bucket_name = s3_target 
+        logger.info(f"Bucket S3: {bucket_name}") 
+        s3_client = boto3.client('s3', region_name=args['REGION']) 
         paginator = s3_client.get_paginator('list_objects_v2')
-        pages = paginator.paginate(Bucket=bucket_name, Prefix=search_prefix, Delimiter='/')
-        
+        pages = paginator.paginate(Bucket=bucket_name, Prefix=search_prefix, Delimiter='/') 
         tables = set()
         for page in pages:
             # Obtener "folders" que representan tablas
@@ -775,106 +758,58 @@ def main():
        else:
            logger.info("El crawler no existe, procediendo a crearlo...")
            
-           # Verificar si existe la base de datos
-           logger.info("Paso 3: Verificando base de datos del catálogo...")
-           database_exists = get_database_data_catalog(data_catalog_database_name)
-           
-           if database_exists:
-               logger.info("La base de datos ya existe")
-               
-               # Verificar y asignar LF-Tags si es necesario
-               logger.info("Paso 4: Verificando LF-Tags en la base de datos existente...")
-               if not check_lf_tags_on_database(data_catalog_database_name):
-                   logger.info("La base de datos no tiene LF-Tags, agregándolos...")
-                   
-                   # Primero asegurar que el LF-Tag existe
-                   try:
-                       create_lf_tag_if_not_exists('Level', ['Stage'])
-                   except Exception as e:
-                       logger.warning(f"Error creando LF-Tag (continuando): {str(e)}")
-                   
-                   # Asegurar permisos de LF-Tag para el rol
-                   job_role_arn_name = arn_role_crawler
-                   try:
-                       grant_permissions_lf_tag_lakeformation(job_role_arn_name)
-                   except Exception as e:
-                       logger.warning(f"Error otorgando permisos LF-Tag (continuando): {str(e)}")
-                   
-                   # Agregar LF-Tags a la base de datos
-                   try:
-                       add_lf_tags_to_database_lakeformation(data_catalog_database_name)
-                   except Exception as e:
-                       logger.warning(f"Error agregando LF-Tags (continuando): {str(e)}")
-               else:
-                   logger.info("La base de datos ya tiene los LF-Tags requeridos")
-               
-               # Crear el crawler
-               logger.info("Paso 5: Creando nuevo crawler...")
-               if create_crawler(total_list):
-                   logger.info("Crawler creado exitosamente")
-                   
-                   logger.info("Paso 6: Iniciando nuevo crawler...")
-                   if start_crawler(data_catalog_crawler_name):
-                       logger.info("Crawler iniciado exitosamente")
-                   else:
-                       logger.error("Error iniciando el nuevo crawler")
-                       return
-               else:
-                   logger.error("Error creando el crawler")
-                   return
-                   
-           else:
-               logger.info("La base de datos no existe, creando infraestructura completa...")
-               
-               # Configurar permisos y crear base de datos
-               job_role_arn_name = arn_role_crawler
-               logger.info(f"Usando ARN del rol: {job_role_arn_name}")
-               
-               # AGREGAR ESTO ANTES de otorgar permisos:
-               logger.info("Paso 4: Creando/verificando LF-Tag...")
+           # Paso 3: Crear la base de datos (si no existe)
+           logger.info("Paso 3: Creando base de datos del catálogo (si no existe)...")
+           try:
+               create_database_data_catalog(data_catalog_database_name)
+               logger.info("Base de datos creada o ya existente")
+           except Exception as e:
+               logger.error(f"Error creando/verificando la base de datos: {str(e)}")
+               return
+
+           # Paso 4: Otorgar permisos de Lake Formation a la base de datos
+           job_role_arn_name = arn_role_crawler
+           logger.info("Otorgando permisos de Lake Formation a la base de datos...")
+           try:
+               grant_permissions_to_database_lakeformation(job_role_arn_name, data_catalog_database_name)
+           except Exception as e:
+               logger.warning(f"Error otorgando permisos de base de datos (continuando): {str(e)}")
+
+           # Paso 5: Verificar y asignar LF-Tags si es necesario
+           logger.info("Paso 5: Verificando LF-Tags en la base de datos...")
+           if not check_lf_tags_on_database(data_catalog_database_name):
+               logger.info("La base de datos no tiene LF-Tags, agregándolos...")
+               # Primero asegurar que el LF-Tag existe
                try:
                    create_lf_tag_if_not_exists('Level', ['Stage'])
                except Exception as e:
                    logger.warning(f"Error creando LF-Tag (continuando): {str(e)}")
-               
-               logger.info("Paso 5: Otorgando permisos de LF-Tag...")
+               # Asegurar permisos de LF-Tag para el rol
                try:
                    grant_permissions_lf_tag_lakeformation(job_role_arn_name)
                except Exception as e:
                    logger.warning(f"Error otorgando permisos LF-Tag (continuando): {str(e)}")
-               
-               logger.info("Paso 6: Creando base de datos del catálogo...")
-               if create_database_data_catalog(data_catalog_database_name):
-                   logger.info("Base de datos creada exitosamente")
-               else:
-                   logger.error("Error creando la base de datos")
-                   return
-               
-               logger.info("Paso 7: Agregando LF-Tags a la base de datos...")
+               # Agregar LF-Tags a la base de datos
                try:
                    add_lf_tags_to_database_lakeformation(data_catalog_database_name)
                except Exception as e:
                    logger.warning(f"Error agregando LF-Tags (continuando): {str(e)}")
-               
-               logger.info("Paso 8: Otorgando permisos de base de datos...")
-               try:
-                   grant_permissions_to_database_lakeformation(job_role_arn_name, data_catalog_database_name)
-               except Exception as e:
-                   logger.warning(f"Error otorgando permisos de base de datos (continuando): {str(e)}")
-               
-               logger.info("Paso 9: Creando crawler...")
-               if create_crawler(total_list):
-                   logger.info("Crawler creado exitosamente")
-                   
-                   logger.info("Paso 10: Iniciando crawler...")
-                   if start_crawler(data_catalog_crawler_name):
-                       logger.info("Crawler iniciado exitosamente")
-                   else:
-                       logger.error("Error iniciando el crawler")
-                       return
+           else:
+               logger.info("La base de datos ya tiene los LF-Tags requeridos")
+
+           # Paso 6: Crear el crawler
+           logger.info("Paso 6: Creando nuevo crawler...")
+           if create_crawler(total_list):
+               logger.info("Crawler creado exitosamente")
+               logger.info("Paso 7: Iniciando nuevo crawler...")
+               if start_crawler(data_catalog_crawler_name):
+                   logger.info("Crawler iniciado exitosamente")
                else:
-                   logger.error("Error creando el crawler")
+                   logger.error("Error iniciando el nuevo crawler")
                    return
+           else:
+               logger.error("Error creando el crawler")
+               return
        
        # Calcular tiempo de ejecución
        execution_time = time.time() - start_time
@@ -981,8 +916,8 @@ def health_check() -> bool:
        try:
            s3_client = boto3.client('s3')
            # Extraer bucket name del S3 target
-           bucket_name = s3_target.replace('s3://', '').split('/')[0]
-           s3_response = s3_client.head_bucket(Bucket=bucket_name)
+           bucket_name = s3_target
+           s3_client.head_bucket(Bucket=bucket_name)
            health_checks.append(("S3 Access", True, f"Bucket accesible: {bucket_name}"))
            logger.debug(f"S3 - Bucket accesible: {bucket_name}")
        except Exception as e:

@@ -17,11 +17,10 @@ from dateutil.relativedelta import relativedelta
 
 IS_AWS_GLUE = True
 IS_AWS_S3 = True
-PARQUET_AVAILABLE = True
 
 import pyarrow as pa
 import pyarrow.parquet as pq
- 
+
 # Import aje_libs 
 try:
     import aje_libs
@@ -88,14 +87,14 @@ class DataExtractor:
         self.table_name = self.config.get('TABLE_NAME')
         
         # Initialize S3 helper
-        self.s3_helper = S3Helper(self.config['S3_RAW_PREFIX'].split("/")[2])
+        self.s3_helper = S3Helper(self.config['S3_RAW_BUCKET'])
         
         # Load configuration from CSV files in S3
         self._load_csv_configurations()
         
         # Initialize table data and endpoint data
         self._initialize_data()
-        
+
     def _load_csv_configurations(self):
         """Load configuration from CSV files in S3"""
         try:
@@ -186,6 +185,12 @@ class DataExtractor:
             
             self.logger.info(f"Determined LOAD_TYPE: {self.table_data.get('LOAD_TYPE', 'not set')} for table {table_name}")
             
+            # Override LOAD_TYPE if FORCE_FULL_LOAD is enabled
+            if self.config.get('FORCE_FULL_LOAD', False) and self.table_data.get('LOAD_TYPE') == 'incremental':
+                original_load_type = self.table_data.get('LOAD_TYPE')
+                self.table_data['LOAD_TYPE'] = 'full'
+                self.logger.info(f"FORCE_FULL_LOAD=true - Overriding LOAD_TYPE from '{original_load_type}' to 'full' for table {table_name}")
+            
             # Filter columns for current table
             self.columns_metadata = []
             for row in columns_data:
@@ -229,8 +234,8 @@ class DataExtractor:
             clean_table_name = self._get_clean_table_name()
             self.day_route = f"{team}/{data_source}/{endpoint_name}/{clean_table_name}/year={YEARS_LIMA}/month={MONTHS_LIMA}/day={DAYS_LIMA}/"
             
-            self.s3_raw_path = self.config['S3_RAW_PREFIX'] + self.day_route
-            self.bucket = self.config['S3_RAW_PREFIX'].split("/")[2]
+            self.s3_raw_path = f"s3://{self.config['S3_RAW_BUCKET']}/{self.day_route}"
+            self.bucket = self.config['S3_RAW_BUCKET']
             
             # Initialize database connection
             self.init_db_connection()
@@ -319,7 +324,7 @@ class DataExtractor:
                 'DATE_SYSTEM': NOW_LIMA.strftime('%Y%m%d_%H%M%S'),
                 'PROJECT_NAME': self.config['PROJECT_NAME'],
                 'FLOW_NAME': 'extract_bigmagic',
-                'TASK_NAME': 'extract_table_bigmagic',
+                'TASK_NAME': 'extract_bigmagic_table',
                 'TASK_STATUS': 'error',
                 'MESSAGE': error_message,
                 'PROCESS_TYPE': 'D' if self.table_data.get('LOAD_TYPE', 'full').strip() in ['incremental'] else 'F',
@@ -341,7 +346,7 @@ class DataExtractor:
                 'DATE_SYSTEM': NOW_LIMA.strftime('%Y%m%d_%H%M%S'),
                 'PROJECT_NAME': self.config['PROJECT_NAME'],
                 'FLOW_NAME': 'extract_bigmagic',
-                'TASK_NAME': 'extract_table_bigmagic',
+                'TASK_NAME': 'extract_bigmagic_table',
                 'TASK_STATUS': 'satisfactorio',
                 'MESSAGE': '',
                 'PROCESS_TYPE': 'D' if self.table_data.get('LOAD_TYPE', 'full').strip() in ['incremental'] else 'F',
@@ -389,6 +394,12 @@ class DataExtractor:
         return start_dt
 
     def get_limits_for_filter(self, month_diff, data_type):
+        """Clean month_diff text value"""
+        month_diff = month_diff.strip()
+        #Check ' character
+        if "'" in month_diff:
+            month_diff = month_diff.replace("'", "")
+
         """Get lower and upper limits for date filters based on data type"""
         data_type = data_type.strip()
         upper_limit = dt.datetime.now(TZ_LIMA)
@@ -415,18 +426,61 @@ class DataExtractor:
       
         return lower_limit.strftime('%Y%m'), upper_limit.strftime('%Y%m')
 
-    def execute_db_query(self, query):
-        """Execute query on the database and return results as DataFrame"""
+    def _fix_duplicate_column_names(self, df):
+        """Fix duplicate column names in a DataFrame by appending sequential numbers"""
         try:
-            self.logger.info("Executing query on database: {query}")
+            if df is None or df.empty:
+                return df
+                
+            columns = list(df.columns)
+            
+            # Check for duplicates
+            if len(columns) != len(set(columns)):
+                self.logger.warning(f"Duplicate column names found: {columns}")
+                
+                # Create a mapping to rename duplicates
+                seen = {}
+                new_columns = []
+                
+                for col in columns:
+                    if col in seen:
+                        seen[col] += 1
+                        new_col = f"{col}_{seen[col]}"
+                    else:
+                        seen[col] = 0
+                        new_col = col
+                    new_columns.append(new_col)
+                
+                # Rename columns
+                df.columns = new_columns
+                self.logger.info(f"Fixed duplicate columns. New columns: {new_columns}")
+                
+            return df
+            
+        except Exception as e:
+            self.logger.error(f"Error fixing duplicate column names: {str(e)}")
+            return df
+
+    def execute_db_query(self, query, chunk_size=None, order_by=None):
+        """Execute query on the database and return results as DataFrame or generator of DataFrames if chunked."""
+        try:
+            self.logger.info(f"Executing query on database: {query}")
             # Use the database helper created by the factory
             if hasattr(self.db_helper, 'execute_query_as_dataframe'):
-                # Directly use dataframe if supported
-                return self.db_helper.execute_query_as_dataframe(query)
+                if chunk_size and order_by:
+                    df_iter = self.db_helper.execute_query_as_dataframe(query, chunk_size=chunk_size, order_by=order_by)
+                    # For chunked results, we need to fix each chunk
+                    def fix_chunk_columns(df_iter):
+                        for df in df_iter:
+                            yield self._fix_duplicate_column_names(df)
+                    return fix_chunk_columns(df_iter)
+                else:
+                    df = self.db_helper.execute_query_as_dataframe(query)
+                    return self._fix_duplicate_column_names(df)
             else:
-                # Otherwise, convert dict results to DataFrame
                 result = self.db_helper.execute_query_as_dict(query)
-                return pd.DataFrame(result)
+                df = pd.DataFrame(result)
+                return self._fix_duplicate_column_names(df)
         except Exception as e:
             self.logger.error(f"Error executing database query: {str(e)}")
             raise
@@ -530,35 +584,41 @@ class DataExtractor:
                         potential_alias.lower() not in ['and', 'or', 'not', 'in', 'like', 'is', 'null', 'from', 'where', 'select']):
                         return potential_alias
             
-            # Method 3: For simple column names (no functions or operators)
+            # Method 3: Handle table.column format (e.g., t2.procpedido)
+            table_column_match = re.match(r'^([a-zA-Z_][a-zA-Z0-9_]*)\\.([a-zA-Z_][a-zA-Z0-9_]*)$', expr.strip())
+            if table_column_match:
+                # Return the column name part (after the dot)
+                return table_column_match.group(2)
+            
+            # Method 4: For simple column names (no functions or operators)
             if not any(indicator in expr.lower() for indicator in ['(', '+', '-', '*', '/', 'ltrim', 'rtrim', 'convert', 'cast', 'dbo.', 'case', "'", '"']):
                 # It's a simple column name, clean it up
                 clean_name = expr.strip('[]"`').strip()
                 if re.match(r'^[a-zA-Z_][a-zA-Z0-9_]*$', clean_name):
                     return clean_name
-            
-            # Method 4: Try to extract the most relevant column name from complex expressions
+
+            # Method 5: Try to extract the most relevant column name from complex expressions
             # Look for column names in the expression (exclude function names)
             column_pattern = r'\b([a-zA-Z_][a-zA-Z0-9_]*)\b'
             potential_columns = re.findall(column_pattern, expr)
             
             if potential_columns:
-                # Filter out known function names and keywords
+                # Filter out known function names, keywords, and common table aliases
                 excluded_words = {
                     'ltrim', 'rtrim', 'convert', 'cast', 'case', 'when', 'then', 'else', 'end',
                     'dbo', 'func_cas_todatetime', 'select', 'from', 'where', 'and', 'or', 'in',
                     'like', 'is', 'null', 'not', 'between', 'exists', 'as', 'varchar', 'int',
-                    'datetime', 'char', 'nvarchar', 'decimal', 'float', 'bit'
+                    'datetime', 'char', 'nvarchar', 'decimal', 'float', 'bit', 't', 't1', 't2', 't3'
                 }
                 
                 filtered_columns = [col for col in potential_columns 
                                 if col.lower() not in excluded_words]
                 
                 if filtered_columns:
-                    # Return the first meaningful column name found
-                    return filtered_columns[0]
+                    # Return the last meaningful column name found (usually the actual column name)
+                    return filtered_columns[-1]
             
-            # Method 5: Last resort - generate a name based on the expression
+            # Method 6: Last resort - generate a name based on the expression
             if 'ltrim' in expr.lower() and 'rtrim' in expr.lower() and '+' in expr:
                 return 'concatenated_field'
             elif 'func_cas_todatetime' in expr.lower():
@@ -608,7 +668,51 @@ class DataExtractor:
             return self.extract_columns_from_query(query)
 
     def write_dataframe_to_s3_parquet(self, df, s3_path, filename=None):
-        """Write pandas DataFrame to S3 in Parquet format"""
+        """Write pandas DataFrame to S3 in Parquet format with all columns as strings."""
+        s3_client = boto3.client('s3')
+
+        # Parse S3 path
+        if s3_path.startswith('s3://'):
+            s3_path = s3_path[5:]  # Remove s3:// prefix
+
+        path_parts = s3_path.split('/', 1)
+        bucket_name = path_parts[0]
+        key_prefix = path_parts[1] if len(path_parts) > 1 else ''
+
+        # Generate filename if not provided
+        if not filename:
+            filename = f"data_{uuid.uuid4().hex[:8]}.parquet"
+
+        # Ensure key_prefix ends with /
+        if key_prefix and not key_prefix.endswith('/'):
+            key_prefix += '/'
+
+        parquet_key = key_prefix + filename
+
+        # Convert all columns to string type
+        df_string = df.astype(str)
+        
+        # Write as Parquet format
+        parquet_buffer = io.BytesIO()
+        df_string.to_parquet(parquet_buffer, index=False, engine='pyarrow')
+        parquet_bytes = parquet_buffer.getvalue()
+
+        if not parquet_key.endswith('.parquet'):
+            parquet_key += '.parquet'
+
+        # Upload to S3
+        s3_client.put_object(
+            Bucket=bucket_name,
+            Key=parquet_key,
+            Body=parquet_bytes,
+            ContentType='application/octet-stream'
+        )
+
+        self.logger.info(f"Successfully wrote DataFrame to s3://{bucket_name}/{parquet_key} as Parquet (all string columns)")
+        return f"s3://{bucket_name}/{parquet_key}"
+            
+    def write_dataframe_to_s3_csv_fallback(self, df, s3_path, filename=None):
+        """Fallback method to write DataFrame to S3 as CSV"""
         try:
             s3_client = boto3.client('s3')
             
@@ -622,35 +726,36 @@ class DataExtractor:
             
             # Generate filename if not provided
             if not filename:
-                filename = f"data_{uuid.uuid4().hex[:8]}.parquet"
+                filename = f"data_{uuid.uuid4().hex[:8]}.csv"
             
             # Ensure key_prefix ends with /
             if key_prefix and not key_prefix.endswith('/'):
                 key_prefix += '/'
             
-            parquet_key = key_prefix + filename
+            key = key_prefix + filename
             
-            # Write as Parquet format
-            parquet_buffer = io.BytesIO()
-            df.to_parquet(parquet_buffer, index=False, engine='pyarrow')
-            parquet_bytes = parquet_buffer.getvalue()
+            # Use CSV format as fallback
+            csv_buffer = io.StringIO()
+            df.to_csv(csv_buffer, index=False, sep='|', quoting=1)
+            csv_bytes = csv_buffer.getvalue().encode('utf-8')
             
-            if not parquet_key.endswith('.parquet'):
-                parquet_key += '.parquet'
+            # Use .csv extension
+            csv_key = key.replace('.parquet', '.csv')
             
             # Upload to S3
             s3_client.put_object(
                 Bucket=bucket_name,
-                Key=parquet_key,
-                Body=parquet_bytes,
-                ContentType='application/octet-stream'
+                Key=csv_key,
+                Body=csv_bytes,
+                ContentType='text/csv'
             )
             
-            self.logger.info(f"Successfully wrote DataFrame to s3://{bucket_name}/{parquet_key} as Parquet")
-            return f"s3://{bucket_name}/{parquet_key}"
+            self.logger.info(f"Successfully wrote DataFrame to s3://{bucket_name}/{csv_key} as CSV (fallback)")
+            return f"s3://{bucket_name}/{csv_key}"
             
         except Exception as e:
-            self.logger.error(f"Error writing DataFrame to S3 as Parquet: {str(e)}")
+            self.logger.error(f"Error writing DataFrame to S3 as CSV fallback: {str(e)}")
+            raise
 
     def _process_columns_field(self):
         """Process the COLUMNS field to handle potential SQL Server identifier length issues"""
@@ -785,54 +890,77 @@ class DataExtractor:
         except Exception as e:
             return columns_str  # Return original if processing fails
 
-    def get_data(self, query, s3_raw_path, actual_thread, number_threads):
-        """Get data from database and write to S3 as Parquet"""
+    def get_data(self, query, s3_raw_path, actual_thread, number_threads, chunk_size=None, order_by=None):
+        """Get data from database and write to S3, supporting chunked extraction if available. Retry Parquet writes, fallback to CSV if Parquet fails, but fail job after CSV write."""
+        import time
+        MAX_RETRIES = 10
+        RETRY_DELAY = 2  # seconds
         try:
             self.logger.info(query)
-            
-            # Execute query
-            df = self.execute_db_query(query)
-            
-            # Drop duplicates
-            df = df.drop_duplicates()
-            
-            # Write to S3 using Parquet format
-            if len(df) == 0:
-                # Try to get columns from the executed query first
-                if len(df.columns) > 0 and not all(col.startswith('Unnamed') for col in df.columns):
-                    columns = list(df.columns)
-                else:
-                    # Extract columns from the query itself
-                    columns = self.extract_columns_from_query(query)
-                    if not columns:
-                        # Fallback to specific extraction method
-                        columns = self.extract_columns_from_query_specific(query)
-                    
-                    if not columns:
-                        # Last resort: try structure query
-                        try:
-                            structure_query = f"SELECT * FROM ({query}) AS subquery WHERE 1=0"
-                            structure_df = self.execute_db_query(structure_query)
-                            columns = list(structure_df.columns)
-                        except:
-                            columns = ['unknown_column']
-                
-                # Create empty DataFrame with extracted columns
-                empty_df = pd.DataFrame(columns=columns)
-                self.write_dataframe_to_s3_parquet(
-                    empty_df, 
-                    s3_raw_path, 
-                    f"empty_data_{actual_thread}.parquet"
-                )
-                self.logger.info(f"Written empty Parquet file with headers: {columns}")
+            is_chunked = chunk_size is not None and order_by is not None
+            df_iter = self.execute_db_query(query, chunk_size=chunk_size, order_by=order_by) if is_chunked else self.execute_db_query(query)
+
+            def try_write_parquet_with_retry(df, s3_path, filename):
+                last_err = None
+                for attempt in range(1, MAX_RETRIES + 1):
+                    try:
+                        return self.write_dataframe_to_s3_parquet(df, s3_path, filename)
+                    except Exception as e:
+                        last_err = e
+                        self.logger.error(f"Parquet write failed (attempt {attempt}/{MAX_RETRIES}) for {filename}: {e}")
+                        if attempt < MAX_RETRIES:
+                            time.sleep(RETRY_DELAY)
+                # Fallback to CSV after retries, but fail job after writing CSV
+                try:
+                    csv_path = self.write_dataframe_to_s3_csv_fallback(df, s3_path, filename.replace('.parquet', '.csv'))
+                    self.logger.error(f"Falling back to CSV for {filename} after Parquet failure. CSV written to: {csv_path}")
+                    raise RuntimeError(f"Parquet write failed after {MAX_RETRIES} retries for {filename}. Data written to CSV at {csv_path}. Failing Glue Job for data integrity.")
+                except Exception as csv_e:
+                    self.logger.error(f"CSV fallback also failed for {filename}: {csv_e}")
+                    raise last_err
+
+            if is_chunked:
+                import numpy as np
+                from concurrent.futures import ThreadPoolExecutor
+                chunk_idx = 0
+                any_data = False
+                files_per_chunk = 6  # You can make this configurable
+                for df in df_iter:
+                    df = df.drop_duplicates()
+                    if len(df) == 0:
+                        continue
+                    any_data = True
+                    # Split chunk into N parts for parallel S3 writes
+                    splits = np.array_split(df, files_per_chunk)
+                    def write_part(part, part_idx):
+                        if len(part) == 0:
+                            return
+                        filename = f"data_thread_{actual_thread}_chunk_{chunk_idx}_part_{part_idx}_{uuid.uuid4().hex[:8]}.parquet"
+                        try_write_parquet_with_retry(part, s3_raw_path, filename)
+                        self.logger.info(f"Written Parquet/CSV part to S3: {s3_raw_path}{filename}")
+                    with ThreadPoolExecutor(max_workers=files_per_chunk) as pool:
+                        futures = [pool.submit(write_part, splits[i], i) for i in range(files_per_chunk)]
+                        for f in futures:
+                            f.result()
+                    chunk_idx += 1
+                if not any_data:
+                    columns = self.extract_columns_from_query(query) or self.extract_columns_from_query_specific(query) or ['unknown_column']
+                    empty_df = pd.DataFrame(columns=columns)
+                    try_write_parquet_with_retry(empty_df, s3_raw_path, f"empty_data_{actual_thread}.parquet")
+                    self.logger.info(f"Written empty Parquet/CSV file with headers: {columns}")
             else:
-                # For non-empty dataframes, write the data as Parquet
-                filename = f"data_thread_{actual_thread}_{uuid.uuid4().hex[:8]}.parquet"
-                self.write_dataframe_to_s3_parquet(df, s3_raw_path, filename)
-            
+                df = df_iter
+                df = df.drop_duplicates()
+                if len(df) == 0:
+                    columns = list(df.columns) if len(df.columns) > 0 and not all(col.startswith('Unnamed') for col in df.columns) else self.extract_columns_from_query(query) or self.extract_columns_from_query_specific(query) or ['unknown_column']
+                    empty_df = pd.DataFrame(columns=columns)
+                    try_write_parquet_with_retry(empty_df, s3_raw_path, f"empty_data_{actual_thread}.parquet")
+                    self.logger.info(f"Written empty Parquet/CSV file with headers: {columns}")
+                else:
+                    filename = f"data_thread_{actual_thread}_{uuid.uuid4().hex[:8]}.parquet"
+                    try_write_parquet_with_retry(df, s3_raw_path, filename)
+                    self.logger.info(f"Written Parquet/CSV file to S3: {s3_raw_path}{filename}")
             self.logger.info(f"finished thread n: {actual_thread}")
-            self.logger.info(f"Data sample: {df.head()}")
-            
         except Exception as e:
             self.logger.error(f"Error in get_data: {str(e)}")
             raise
@@ -963,16 +1091,21 @@ class DataExtractor:
             if self.table_data.get('LOAD_TYPE', 'full') == 'full':
                 FILTER_COLUMN = '0=0'
             else:
+                # Clean DELAY_INCREMENTAL_INI from ' character
+                clean_delay_incremental_ini = self.table_data.get('DELAY_INCREMENTAL_INI', '-2').strip().replace("'", "")
+
                 lower_limit, upper_limit = self.get_limits_for_filter(
-                    self.table_data.get('DELAY_INCREMENTAL_INI', -2), 
+                    clean_delay_incremental_ini,
                     self.table_data.get('FILTER_DATA_TYPE', ""))
-                FILTER_COLUMN = self.table_data.get('FILTER_COLUMN', '1=1').replace('{0}', lower_limit).replace('{1}', upper_limit)
-                
+                # Remove double quotes from FILTER_COLUMN
+                FILTER_COLUMN = self.table_data.get('FILTER_COLUMN', '1=1').replace('{0}', lower_limit).replace('{1}', upper_limit).replace('"', '')
+
+            # Remove double quotes from FILTER_EXP
             if self.table_data.get('FILTER_EXP', '').strip() != '':
-                FILTER_EXP = self.table_data['FILTER_EXP']
+                FILTER_EXP = self.table_data['FILTER_EXP'].replace('"', '')
             else:
                 FILTER_EXP = '0=0'
-                
+
             query += f'where {FILTER_EXP} AND {FILTER_COLUMN}'
             
         print(f"=== FINAL COMPLETE QUERY WITH FILTERS ===")
@@ -1118,28 +1251,30 @@ class DataExtractor:
             active_futures = set()
             
             with futures.ThreadPoolExecutor(max_workers=max_concurrent_workers) as executor:
+                # Determine chunking params if partitioned_full
+                chunk_size = 1000000
+                order_by = self.table_data.get('ID_COLUMN')
                 # Initial batch of tasks
                 for i in range(min(max_concurrent_workers, total_tasks)):
+                    kwargs = {}
+                    if order_by:
+                        kwargs = {'chunk_size': chunk_size, 'order_by': order_by}
                     future = executor.submit(
                         self.get_data,
                         all_queries[i],
                         self.s3_raw_path,
                         i,
-                        total_tasks
+                        total_tasks,
+                        **kwargs
                     )
                     active_futures.add(future)
-                    
                 # Process tasks as they complete
                 next_task_idx = max_concurrent_workers
-                
                 while active_futures and completed_tasks < total_tasks:
-                    # Wait for any task to complete
                     done, active_futures = futures.wait(
                         active_futures, 
                         return_when=futures.FIRST_COMPLETED
                     )
-                    
-                    # Process completed tasks
                     for future in done:
                         try:
                             future.result()  # Check for exceptions
@@ -1148,15 +1283,17 @@ class DataExtractor:
                         except Exception as e:
                             self.logger.error(f"Task failed with error: {str(e)}")
                             raise
-                    
-                    # Queue up new tasks if available
                     while len(active_futures) < max_concurrent_workers and next_task_idx < total_tasks:
+                        kwargs = {}
+                        if order_by:
+                            kwargs = {'chunk_size': chunk_size, 'order_by': order_by}
                         future = executor.submit(
                             self.get_data,
                             all_queries[next_task_idx],
                             self.s3_raw_path,
                             next_task_idx,
-                            total_tasks
+                            total_tasks,
+                            **kwargs
                         )
                         active_futures.add(future)
                         self.logger.info(f"Started task {next_task_idx + 1}/{total_tasks}")
@@ -1179,10 +1316,17 @@ config = {}
 if IS_AWS_GLUE:
     from awsglue.utils import getResolvedOptions    
     args = getResolvedOptions(
-        sys.argv, ['S3_RAW_PREFIX', 'ARN_TOPIC_SUCCESS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'ENVIRONMENT', 'REGION', 'DYNAMO_LOGS_TABLE', 'ARN_TOPIC_FAILED', 'TABLE_NAME', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'ENDPOINT_NAME'])
+        sys.argv, ['S3_RAW_BUCKET', 'ARN_TOPIC_SUCCESS', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'ENVIRONMENT', 'REGION', 'DYNAMO_LOGS_TABLE', 'ARN_TOPIC_FAILED', 'TABLE_NAME', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'ENDPOINT_NAME'])
+
+    # Make FORCE_FULL_LOAD optional with a default value of "false"
+    try:
+        force_full_load = args.get('FORCE_FULL_LOAD', 'false').lower() == 'true'
+    except:
+        force_full_load = False
+
 
     config = {
-        "S3_RAW_PREFIX": args["S3_RAW_PREFIX"],
+        "S3_RAW_BUCKET": args["S3_RAW_BUCKET"],
         "DYNAMO_LOGS_TABLE": args["DYNAMO_LOGS_TABLE"],
         "ENVIRONMENT": args["ENVIRONMENT"],
         "PROJECT_NAME": args["PROJECT_NAME"],
@@ -1195,7 +1339,8 @@ if IS_AWS_GLUE:
         "TABLES_CSV_S3": args["TABLES_CSV_S3"],
         "CREDENTIALS_CSV_S3": args["CREDENTIALS_CSV_S3"],
         "COLUMNS_CSV_S3": args["COLUMNS_CSV_S3"],
-        "ENDPOINT_NAME": args["ENDPOINT_NAME"]
+        "ENDPOINT_NAME": args["ENDPOINT_NAME"],
+        "FORCE_FULL_LOAD": force_full_load
     }
 region_name = config["REGION"]
 #boto3.setup_default_session(profile_name='prod-compliance-admin', region_name=region_name)
@@ -1211,7 +1356,6 @@ logger.info("=" * 80)
 
 logger.info("Starting data extraction process")
 logger.info(f"Configuration: {config}")
-
 try:
     # Create extractor instance
     logger.info("Creating extractor instance")

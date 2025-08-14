@@ -1,3 +1,4 @@
+import csv
 import os
 import json
 from aws_cdk import (
@@ -6,17 +7,23 @@ from aws_cdk import (
     aws_dynamodb as dynamodb,
     aws_sns as sns,
     aws_iam as iam,
+    aws_lambda as _lambda,
     aws_stepfunctions as sfn,
     aws_stepfunctions_tasks as tasks,
     aws_secretsmanager as secretsmanager,
     CfnOutput,
-    Duration
+    Duration,
+    Tags
 )
+import aws_cdk.aws_glue_alpha as glue
+import aws_cdk.aws_s3_deployment as s3_deployment
 from constructs import Construct
-from aje_cdk_libs.builders.resource_builder import ResourceBuilder
+
 from aje_cdk_libs.builders.name_builder import NameBuilder
+from aje_cdk_libs.builders.resource_builder import ResourceBuilder
+from aje_cdk_libs.constants.policies import PolicyUtils
 from aje_cdk_libs.constants.services import Services
-from aje_cdk_libs.models.configs import RoleConfig, GlueConnectionConfig, SecretConfig
+from aje_cdk_libs.models.configs import GlueJobConfig, S3DeploymentConfig, SecretConfig, StepFunctionConfig, GlueConnectionConfig
 from constants.paths import Paths
 
 class CdkDatalakeIngestBigmagicStack(Stack):
@@ -26,14 +33,14 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         self.builder = ResourceBuilder(self, self.PROJECT_CONFIG)
         self.name_builder = NameBuilder(self.PROJECT_CONFIG)
         self.Paths = Paths(self.PROJECT_CONFIG.app_config)
-        
+
         # Initialize resource dictionaries
         self.glue_connections = {}
         self.secrets = {}
 
-        self._create_s3_buckets()
-        self._create_dynamodb_tables()
-        self._create_sns_topics()
+        self._get_s3_buckets()
+        self._get_dynamodb_tables()
+        self._get_sns_topics()
         self._create_secrets()  # Create secrets for database credentials
         self._create_iam_roles()
         self._create_glue_connections()  # Create Glue connections for extract jobs
@@ -42,31 +49,27 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         self._create_crawler_glue_jobs()  # Create crawler jobs for each database
         self._create_base_step_function()  # Create a reusable base Step Function
 
-    def _create_s3_buckets(self):
+    def _get_s3_buckets(self):
         self.s3_artifacts_bucket = self.builder.import_s3_bucket(self.PROJECT_CONFIG.app_config["s3_buckets"]["artifacts"])
         self.s3_landing_bucket = self.builder.import_s3_bucket(self.PROJECT_CONFIG.app_config["s3_buckets"]["landing"])
         self.s3_raw_bucket = self.builder.import_s3_bucket(self.PROJECT_CONFIG.app_config["s3_buckets"]["raw"])
         self.s3_stage_bucket = self.builder.import_s3_bucket(self.PROJECT_CONFIG.app_config["s3_buckets"]["stage"])
-        self.s3_analytics_bucket = self.builder.import_s3_bucket(self.PROJECT_CONFIG.app_config["s3_buckets"]["analytics"])
 
-    def _create_dynamodb_tables(self):
-        self.dynamodb_configuration_table = self.builder.import_dynamodb_table(self.PROJECT_CONFIG.app_config["dynamodb_tables"]["configuration"])
-        self.dynamodb_credentials_table = self.builder.import_dynamodb_table(self.PROJECT_CONFIG.app_config["dynamodb_tables"]["credentials"])
-        self.dynamodb_columns_specifications_table = self.builder.import_dynamodb_table(self.PROJECT_CONFIG.app_config["dynamodb_tables"]["columns-specifications"])
+    def _get_dynamodb_tables(self):
         self.dynamodb_logs_table = self.builder.import_dynamodb_table(self.PROJECT_CONFIG.app_config["dynamodb_tables"]["logs"])
 
-    def _create_sns_topics(self):
+    def _get_sns_topics(self):
         self.sns_failed_topic = self.builder.import_sns_topic(self.PROJECT_CONFIG.app_config["topic_notifications"]["failed"])
         self.sns_success_topic = self.builder.import_sns_topic(self.PROJECT_CONFIG.app_config["topic_notifications"]["success"])
 
     def _create_iam_roles(self):
         resources = self._get_resource_arns()
-        
+
         extract_tags = self._create_job_tags('Extract')
         light_transform_tags = self._create_job_tags('LightTransform')
         crawler_tags = self._create_job_tags('Crawler')
         step_function_tags = self._create_job_tags('StepFunction')
-        
+
         self.role_extract = self.builder.build_extract_role(
             f"{self.PROJECT_CONFIG.app_config['datasource'].lower()}_extract",
             resources,
@@ -104,10 +107,6 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         CfnOutput(self, "RawBucketName", value=self.s3_raw_bucket.bucket_name)
         CfnOutput(self, "StageBucketName", value=self.s3_stage_bucket.bucket_name)
         CfnOutput(self, "LandingBucketName", value=self.s3_landing_bucket.bucket_name)
-        CfnOutput(self, "AnalyticsBucketName", value=self.s3_analytics_bucket.bucket_name)
-        CfnOutput(self, "DynamoConfigTableName", value=self.dynamodb_configuration_table.table_name)
-        CfnOutput(self, "DynamoCredentialsTableName", value=self.dynamodb_credentials_table.table_name)
-        CfnOutput(self, "DynamoColumnsTableName", value=self.dynamodb_columns_specifications_table.table_name)
         CfnOutput(self, "DynamoLogsTableName", value=self.dynamodb_logs_table.table_name)
         CfnOutput(self, "SnsFailedTopicArn", value=self.sns_failed_topic.topic_arn)
         CfnOutput(self, "SnsSuccessTopicArn", value=self.sns_success_topic.topic_arn)
@@ -148,12 +147,12 @@ class CdkDatalakeIngestBigmagicStack(Stack):
                 )
             ),
             default_arguments={
-                '--S3_STAGE_PREFIX': f"s3://{self.s3_stage_bucket.bucket_name}/",
+                '--S3_STAGE_BUCKET': self.s3_stage_bucket.bucket_name,
                 '--DYNAMO_LOGS_TABLE': self.dynamodb_logs_table.table_name,
                 '--TEAM': self.PROJECT_CONFIG.app_config["team"],
                 '--DATA_SOURCE': self.PROJECT_CONFIG.app_config["datasource"],
                 '--REGION': self.PROJECT_CONFIG.region_name,
-                '--ENVIRONMENT': self.PROJECT_CONFIG.environment.value.lower(),
+                '--ENVIRONMENT': self.PROJECT_CONFIG.environment.value,
                 '--ENDPOINT_NAME': endpoint_name
             },
             continuous_logging=glue.ContinuousLoggingProps(enabled=True),
@@ -167,21 +166,15 @@ class CdkDatalakeIngestBigmagicStack(Stack):
 
     def _create_crawler_glue_jobs(self):
         """Create crawler jobs for each endpoint"""
-        from aje_cdk_libs.models.configs import GlueJobConfig
-        from aws_cdk import Duration
-        import aws_cdk.aws_glue_alpha as glue
-        import csv
-        
         # Read credentials to get endpoint list that match current environment
         endpoint_names = []
         with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/credentials.csv', newline='', encoding='utf-8') as creds_file:
             creds_reader = csv.DictReader(creds_file, delimiter=';')
-            for row in creds_reader:
+            for row in creds_reader: 
                 # Only include endpoints that match the current environment
                 if row['ENV'].lower() == self.PROJECT_CONFIG.environment.value.lower():
                     endpoint_names.append(row['ENDPOINT_NAME'])
-        
-        # Create crawler jobs for each endpoint
+        # Create crawler jobs for each endpoint - both Raw and Stage
         self.crawler_jobs = {}
         
         for endpoint_name in endpoint_names:
@@ -212,7 +205,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
                     )
                 ),
                 default_arguments={
-                    '--S3_STAGE_PREFIX': f"s3://{self.s3_stage_bucket.bucket_name}/",
+                    '--S3_STAGE_BUCKET': self.s3_stage_bucket.bucket_name,
                     '--DYNAMO_LOGS_TABLE': self.dynamodb_logs_table.table_name,
                     '--PROCESS_ID': "ALL",  # Can be overridden at runtime
                     '--ENDPOINT_NAME': endpoint_name,  # This crawler handles this specific database
@@ -313,6 +306,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
             CfnOutput(self, f"CatalogJob{self.PROJECT_CONFIG.app_config['team']}{self.PROJECT_CONFIG.app_config['datasource']}{endpoint_name}Name", value=catalog_job.job_name)
 
     def _get_resource_arns(self):
+        """Generate ARN maps for resource-specific permissions following least privilege principle"""
         resources = {
             's3': [
                 f"arn:aws:s3:::{self.s3_landing_bucket.bucket_name}",
@@ -346,7 +340,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
                 f"arn:aws:lakeformation:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:catalog:{self.PROJECT_CONFIG.account_id}"
             ],
             'secret':[
-                f"arn:aws:secretsmanager:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:secret:{self.secrets['main_secret'].secret_name}"
+                f"arn:aws:secretsmanager:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:secret:{self.secrets['main_secret'].secret_name}-*"
             ],
             'lambda': [
                 f"arn:aws:lambda:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:function:{self.PROJECT_CONFIG.project_name}-{self.PROJECT_CONFIG.environment.value.lower()}-datalake-invoke_*"
@@ -359,7 +353,8 @@ class CdkDatalakeIngestBigmagicStack(Stack):
 
     def _create_base_step_function(self):
         start_job = tasks.CallAwsService(
-            self, "StartGlueJob",
+            self,
+            "StartGlueJob",
             service="glue",
             action="startJobRun",
             parameters={
@@ -369,7 +364,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
             iam_resources=["*"],
             result_path="$.job_run"
         )
-        
+
         check_job_status = tasks.CallAwsService(
             self, "CheckGlueJobStatus",
             service="glue",
@@ -381,90 +376,65 @@ class CdkDatalakeIngestBigmagicStack(Stack):
             iam_resources=["*"],  # Use wildcard to avoid policy size issues
             result_path="$.job_status"
         )
-        
+
         job_status_choice = sfn.Choice(
             self, "IsJobComplete"
         )
-        
+
         wait_state = sfn.Wait(
             self, "WaitForJobCompletion",
             time=sfn.WaitTime.duration(Duration.seconds(30))
         )
-        
+
         notify_success = tasks.CallAwsService(
-            self, "NotifySuccess",
+            self,
+            "NotifySuccess",
             service="sns",
             action="publish",
-            parameters={
-                "TopicArn": self.sns_success_topic.topic_arn,
-                "Message": sfn.JsonPath.format(
-                    "Glue job {} completed successfully",
-                    sfn.JsonPath.string_at("$.job_name")
-                ),
-                "Subject": "Glue Job Success"
-            },
+            parameters={"TopicArn": self.sns_success_topic.topic_arn, "Message": sfn.JsonPath.format("Glue job {} completed successfully", sfn.JsonPath.string_at("$.job_name")), "Subject": "Glue Job Success"},
             iam_resources=[self.sns_success_topic.topic_arn],
-            result_path="$.notification_result"
+            result_path="$.notification_result",
         )
-        
+
         job_failed = sfn.Fail(
             self, "JobFailed",
             cause="Glue Job Failed",
             error="JobExecutionFailed"
         )
-        
+
         job_succeeded = sfn.Succeed(
             self, "JobSucceeded"
         )
-        
         notify_job_failed = tasks.CallAwsService(
-            self, "NotifyJobFailed",
+            self,
+            "NotifyJobFailed",
             service="sns",
             action="publish",
-            parameters={
-                "TopicArn": self.sns_failed_topic.topic_arn,
-                "Message": sfn.JsonPath.format(
-                    "Glue job {} failed with state: FAILED",
-                    sfn.JsonPath.string_at("$.job_name")
-                ),
-                "Subject": "Glue Job Failure"
-            },
+            parameters={"TopicArn": self.sns_failed_topic.topic_arn, "Message": sfn.JsonPath.format("Glue job {} failed with state: FAILED", sfn.JsonPath.string_at("$.job_name")), "Subject": "Glue Job Failure"},
             iam_resources=[self.sns_failed_topic.topic_arn],
-            result_path="$.notification_result"
+            result_path="$.notification_result",
         )
-        
+
         notify_job_stopped = tasks.CallAwsService(
-            self, "NotifyJobStopped",
+            self,
+            "NotifyJobStopped",
             service="sns",
             action="publish",
-            parameters={
-                "TopicArn": self.sns_failed_topic.topic_arn,
-                "Message": sfn.JsonPath.format(
-                    "Glue job {} failed with state: STOPPED",
-                    sfn.JsonPath.string_at("$.job_name")
-                ),
-                "Subject": "Glue Job Stopped"
-            },
+            parameters={"TopicArn": self.sns_failed_topic.topic_arn, "Message": sfn.JsonPath.format("Glue job {} failed with state: STOPPED", sfn.JsonPath.string_at("$.job_name")), "Subject": "Glue Job Stopped"},
             iam_resources=[self.sns_failed_topic.topic_arn],
-            result_path="$.notification_result"
+            result_path="$.notification_result",
         )
-        
+
         notify_job_timeout = tasks.CallAwsService(
-            self, "NotifyJobTimeout",
+            self,
+            "NotifyJobTimeout",
             service="sns",
             action="publish",
-            parameters={
-                "TopicArn": self.sns_failed_topic.topic_arn,
-                "Message": sfn.JsonPath.format(
-                    "Glue job {} failed with state: TIMEOUT",
-                    sfn.JsonPath.string_at("$.job_name")
-                ),
-                "Subject": "Glue Job Timeout"
-            },
+            parameters={"TopicArn": self.sns_failed_topic.topic_arn, "Message": sfn.JsonPath.format("Glue job {} failed with state: TIMEOUT", sfn.JsonPath.string_at("$.job_name")), "Subject": "Glue Job Timeout"},
             iam_resources=[self.sns_failed_topic.topic_arn],
-            result_path="$.notification_result"
+            result_path="$.notification_result",
         )
-        
+
         job_failed_chain = notify_job_failed.next(job_failed)
         job_stopped_chain = notify_job_stopped.next(job_failed)
         job_timeout_chain = notify_job_timeout.next(job_failed)
@@ -485,17 +455,16 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         ).otherwise(
             wait_state.next(check_job_status)
         )
-        
+
         definition = start_job.next(check_job_status)
-        from aje_cdk_libs.models.configs import StepFunctionConfig
-        
+
         sf_name = f"workflow_base_{self.PROJECT_CONFIG.app_config['datasource'].lower()}"
-        
+
         sf_tags = self._create_job_tags('BaseWorkflow')
-        
+
         sf_config = StepFunctionConfig(
             name=sf_name,
-            definition=definition,
+            definition_body=sfn.DefinitionBody.from_chainable(definition), 
             timeout=Duration.hours(12),  # Long timeout for long-running jobs
             role=self.role_step_function,
             tags=sf_tags
@@ -528,9 +497,6 @@ class CdkDatalakeIngestBigmagicStack(Stack):
 
     def _deploy_scripts_to_s3(self):
         """Deploy Glue code and CSV configuration files to S3 buckets"""
-        import aws_cdk.aws_s3_deployment as s3_deployment
-        from aje_cdk_libs.models.configs import S3DeploymentConfig
-        
         # Deploy raw scripts
         resource_name = "raw"
         config = S3DeploymentConfig(
@@ -540,7 +506,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
             f"{self.Paths.AWS_ARTIFACTS_GLUE_CODE}/{resource_name}"
         )
         self.builder.deploy_s3_bucket(config)
-        
+
         # Deploy stage scripts
         resource_name = "stage"
         config = S3DeploymentConfig(
@@ -614,24 +580,24 @@ class CdkDatalakeIngestBigmagicStack(Stack):
             
         except Exception as e:
             # Note: Connection creation failed, extract jobs will run without VPC connection
+            print(f"Warning: Failed to create glue connection '{glue_config}': {str(e)}")
             pass
 
     def _create_secrets(self):
         """Create a single AWS Secrets Manager secret for database credentials following extract_data.py naming convention"""
-        import json
-        
+
         # Initialize secrets dictionary
         self.secrets = {}
-        
+
         # Get configuration values
         environment = self.PROJECT_CONFIG.environment.value.lower()  # dev/prod
         project_name = self.PROJECT_CONFIG.project_name.lower()
         team = self.PROJECT_CONFIG.app_config['team'].lower()
         data_source = self.PROJECT_CONFIG.app_config['datasource'].lower()
-        
+
         # Create secret name following extract_data.py convention: {environment}/{project_name}/{team}/{data_source}
         secret_logical_name = f"{environment}/{project_name}/{team}/{data_source}"
-        
+
         try:
             # Create a dummy secret value that will be manually updated later
             dummy_secret_value = {
@@ -641,19 +607,19 @@ class CdkDatalakeIngestBigmagicStack(Stack):
                 "port": "PLACEHOLDER_PORT",
                 "database": "PLACEHOLDER_DATABASE"
             }
-            
+
             # Create secret configuration with string value (ResourceBuilder will convert to SecretValue)
             secret_config = SecretConfig(
                 secret_name=secret_logical_name,
                 secret_value=json.dumps(dummy_secret_value)
             )
-            
+
             # Create the secret using the builder
             secret = self.builder.build_secret(secret_config)
-            
+
             # Store the secret for output reference (use a generic key since there's only one)
             self.secrets['main_secret'] = secret
-            
+
         except Exception as e:
             # Log error but don't fail the stack deployment
             print(f"Warning: Failed to create secret '{secret_logical_name}': {str(e)}")
@@ -664,7 +630,6 @@ class CdkDatalakeIngestBigmagicStack(Stack):
         try:
             current_env = self.PROJECT_CONFIG.environment.value.upper()
             with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/credentials.csv', newline='', encoding='utf-8') as csvfile:
-                import csv
                 reader = csv.DictReader(csvfile, delimiter=';')
                 for row in reader:
                     # Match both SRC_DB_NAME and ENV

@@ -29,7 +29,7 @@ logger = logging.getLogger("LightTransform")
 logger.setLevel(os.environ.get("LOGGING", logging.INFO))
 
 args = getResolvedOptions(
-    sys.argv, ['JOB_NAME', 'S3_RAW_PREFIX', 'S3_STAGE_PREFIX', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'ARN_TOPIC_FAILED', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'ENDPOINT_NAME', 'ENVIRONMENT'])
+    sys.argv, ['JOB_NAME', 'S3_RAW_BUCKET', 'S3_STAGE_BUCKET', 'DYNAMO_LOGS_TABLE', 'TABLE_NAME', 'ARN_TOPIC_FAILED', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'ENDPOINT_NAME', 'ENVIRONMENT'])
 
 # Load configuration from CSV files in S3
 def load_csv_from_s3(s3_path):
@@ -218,8 +218,8 @@ dynamodb = boto3.resource('dynamodb')
 dynamodb_client = boto3.client('dynamodb')
 dynamo_logs_table = args['DYNAMO_LOGS_TABLE'].strip()
 
-s3_source = args['S3_RAW_PREFIX']
-s3_target = args['S3_STAGE_PREFIX']
+s3_source = args['S3_RAW_BUCKET']
+s3_target = args['S3_STAGE_BUCKET']
 table_name = args['TABLE_NAME']
 project_name = args['PROJECT_NAME']
 
@@ -542,27 +542,18 @@ try:
     #DAYS_LIMA = '26'
     # Get clean table name (remove alias after space) for S3 raw path  
     clean_table_name = get_clean_table_name(table_data, table_name)
-    s3_raw_path = s3_source + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + args['ENDPOINT_NAME'] + "/" + clean_table_name + "/year=" + YEARS_LIMA + "/month=" + MONTHS_LIMA + "/day=" + DAYS_LIMA + "/"
-    s3_stage_path = s3_target + args['TEAM'] + "/" + args['DATA_SOURCE'] + "/" + args['ENDPOINT_NAME'] + "/" + table_name + "/"
+
+    day_route = f"{args['TEAM']}/{args['DATA_SOURCE']}/{args['ENDPOINT_NAME']}/{clean_table_name}/year={YEARS_LIMA}/month={MONTHS_LIMA}/day={DAYS_LIMA}/"
+    s3_raw_path = f"s3://{s3_source}/{day_route}"
+    s3_stage_path = f"s3://{s3_target}/{args['TEAM']}/{args['DATA_SOURCE']}/{args['ENDPOINT_NAME']}/{table_name}/"
+    # Try to read as Parquet first
     try:
-        # Try to read as Parquet first
-        try:
-            raw_df = spark.read.format("parquet").load(s3_raw_path)
-            # logger.info("Successfully read data as Parquet format")
-        except Exception as parquet_error:
-            logger.warning(f"Failed to read as Parquet: {parquet_error}")
-            # Try to read as CSV (fallback)
-            try:
-                raw_df = spark.read.format("csv").option("header", "true").option("inferSchema", "true").option("sep", "|").option("quote", '"').option("escape", '"').load(s3_raw_path)
-                # logger.info("Successfully read data as CSV format (fallback)")
-            except Exception as csv_error:
-                logger.error(f"Failed to read as both Parquet and CSV: parquet_error={parquet_error}, csv_error={csv_error}")
-                raise NoDataToMigrateException()
-        
+        raw_df = spark.read.format("parquet").load(s3_raw_path)      
         row_count = raw_df.count()
-    except Exception as e:
-        logger.error(e)
-        raise NoDataToMigrateException()
+        logger.info("Successfully read data as Parquet format")
+    except Exception as parquet_error:
+        logger.warning(f"Failed to read as Parquet: {parquet_error}")
+        raise NoDataToMigrateException()  
     else:
         if row_count == 0:
             logger.warning("DataFrame is empty (only headers or completely empty)")
@@ -571,7 +562,7 @@ try:
             partition_columns_array = []
             if not DeltaTable.isDeltaTable(spark, s3_stage_path):
                 for column in columns_metadata['Items']:
-                    # logger.info(f"column : {column['COLUMN_NAME']['S']}")
+                    logger.info(f"column : {column['COLUMN_NAME']['S']}")
                     if column.get('IS_PARTITION', {}).get('BOOL', False):
                         column_name = get_column_value(column, 'COLUMN_NAME')
                         partition_columns_array.append(column_name)
@@ -582,9 +573,9 @@ try:
                     logger.info("Writing empty table without partitioning")
                     raw_df.write.format("delta").mode("overwrite").save(s3_stage_path)
                 is_empty_source = True
-                # logger.info("Created empty DataFrame with schema and saved to stage path")
+                logger.info("Created empty DataFrame with schema and saved to stage path")
             else:
-                # logger.info("Delta table already exists, skipping creation of empty DataFrame")
+                logger.info("Delta table already exists, skipping creation of empty DataFrame")
                 is_empty_source = True
         else:                    
             columns_controller = ColumnTransformationController()
@@ -643,8 +634,8 @@ try:
                         'PROCESS_ID': f"DLB_{table_name.split('_')[0]}_{table_name}_{NOW_LIMA.strftime('%Y%m%d_%H%M%S')}",
                         'DATE_SYSTEM': NOW_LIMA.strftime('%Y%m%d_%H%M%S'),
                         'PROJECT_NAME': project_name,
-                        'FLOW_NAME': 'extract_bigmagic',
-                        'TASK_NAME': 'extract_table_raw',
+                        'FLOW_NAME': 'light_transform',
+                        'TASK_NAME': 'light_transform_table',
                         'TASK_STATUS': 'error',
                         'MESSAGE': f"{e}",
                         'PROCESS_TYPE': 'D' if table_data.get('LOAD_TYPE', 'full').strip() in ['incremental'] else 'F',
@@ -699,7 +690,7 @@ try:
                             
                             if table_data.get('SOURCE_TABLE_TYPE','m') == 't':
                                 upper_limit = dt.datetime.now(TZ_LIMA)
-                                lower_limit = upper_limit - relativedelta(months=(-1*int(table_data.get('DELAY_INCREMENTAL_INI', -2))))
+                                lower_limit = upper_limit - relativedelta(months=(-1*int(table_data.get('DELAY_INCREMENTAL_INI', '-2').strip().replace("'", ""))))
                                 stage_dt.delete(col("processperiod") >= int(lower_limit.strftime('%Y%m')))
                             stage_dt.alias("old") \
                                 .merge(raw_df.alias("new"), condition) \
@@ -735,9 +726,9 @@ try:
             log = {
                 'PROCESS_ID': f"DLB_{table_name.split('_')[0]}_{table_name}_{NOW_LIMA.strftime('%Y%m%d_%H%M%S')}",
                 'DATE_SYSTEM': NOW_LIMA.strftime('%Y%m%d_%H%M%S'),
-                'PROJECT_NAME': 'athenea',
-                'FLOW_NAME': 'extract_bigmagic',
-                'TASK_NAME': 'extract_table_raw',
+                'PROJECT_NAME': project_name,
+                'FLOW_NAME': 'light_transform',
+                'TASK_NAME': 'light_transform_table',
                 'TASK_STATUS': 'satisfactorio',
                 'MESSAGE': '',
                 'PROCESS_TYPE': 'D' if table_data.get('LOAD_TYPE', 'full').strip() in ['incremental'] else 'F',
@@ -753,9 +744,9 @@ try:
                 log = {
                     'PROCESS_ID': f"DLB_{table_name.split('_')[0]}_{table_name}_{NOW_LIMA.strftime('%Y%m%d_%H%M%S')}",
                     'DATE_SYSTEM': NOW_LIMA.strftime('%Y%m%d_%H%M%S'),
-                    'PROJECT_NAME': 'athenea',
-                    'FLOW_NAME': 'extract_bigmagic',
-                    'TASK_NAME': 'extract_table_raw',
+                    'PROJECT_NAME': project_name,
+                    'FLOW_NAME': 'light_transform',
+                    'TASK_NAME': 'light_transform_table',
                     'TASK_STATUS': 'WARNING',
                     'MESSAGE': f"STAGE: {columns_controller.get_msg()}",
                     'PROCESS_TYPE': 'D' if table_data.get('LOAD_TYPE', 'full').strip() in ['incremental'] else 'F',
@@ -767,9 +758,9 @@ except NoDataToMigrateException as e:
     log = {
         'PROCESS_ID': f"DLB_{table_name.split('_')[0]}_{table_name}_{NOW_LIMA.strftime('%Y%m%d_%H%M%S')}",
         'DATE_SYSTEM': NOW_LIMA.strftime('%Y%m%d_%H%M%S'),
-        'PROJECT_NAME': 'athenea',
-        'FLOW_NAME': 'extract_bigmagic',
-        'TASK_NAME': 'extract_table_raw',
+        'PROJECT_NAME': project_name,
+        'FLOW_NAME': 'light_transform',
+        'TASK_NAME': 'light_transform_table',
         'TASK_STATUS': 'error',
         'MESSAGE': f"No data detected to migrate. Details are: {e}",
         'PROCESS_TYPE': 'D' if table_data.get('LOAD_TYPE', 'full').strip() in ['incremental'] else 'F',
@@ -777,15 +768,15 @@ except NoDataToMigrateException as e:
     }
     add_log_to_dynamodb(dynamo_logs_table, log)     
     send_error_message(args['ARN_TOPIC_FAILED'], table_data.get('STAGE_TABLE_NAME', table_name), str(e))
-    logger.error(e)
+    logger.error(f"No data detected to migrate. Details are: {e}")
 
 except Exception as e:
     log = {
         'PROCESS_ID': f"DLB_{table_name.split('_')[0]}_{table_name}_{NOW_LIMA.strftime('%Y%m%d_%H%M%S')}",
         'DATE_SYSTEM': NOW_LIMA.strftime('%Y%m%d_%H%M%S'),
-        'PROJECT_NAME': 'athenea',
-        'FLOW_NAME': 'extract_bigmagic',
-        'TASK_NAME': 'extract_table_raw',
+        'PROJECT_NAME': project_name,
+        'FLOW_NAME': 'light_transform',
+        'TASK_NAME': 'light_transform_table',
         'TASK_STATUS': 'error',
         'MESSAGE': f"{e}",
         'PROCESS_TYPE': 'D' if table_data.get('LOAD_TYPE', 'full').strip() in ['incremental'] else 'F',
@@ -793,5 +784,4 @@ except Exception as e:
     }
     add_log_to_dynamodb(dynamo_logs_table, log) 
     send_error_message(args['ARN_TOPIC_FAILED'], table_data.get('STAGE_TABLE_NAME', table_name), str(e))
-    logger.error(e)
-    logger.error("Error while importing data")
+    logger.error(f"Error while importing data. Details are: {e}")

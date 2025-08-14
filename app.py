@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 import csv
 import json
 
-load_dotenv() 
+load_dotenv()
 
 # Load environment-specific configuration
 environment = os.getenv("ENVIRONMENT", "dev").lower()
@@ -27,8 +27,8 @@ app = cdk.App()
 CONFIG = app.node.try_get_context("project_config")
 CONFIG["account_id"] = os.getenv("ACCOUNT_ID", None)
 CONFIG["region_name"] = os.getenv("REGION_NAME", None)
-CONFIG["environment"] = os.getenv("ENVIRONMENT", None) 
-CONFIG["separator"] = os.getenv("SEPARATOR", "-") 
+CONFIG["environment"] = os.getenv("ENVIRONMENT", None)
+CONFIG["separator"] = os.getenv("SEPARATOR", "-")
 project_config = ProjectConfig.from_dict(CONFIG)
 project_paths = Paths(project_config.app_config)
 
@@ -37,7 +37,7 @@ print(f"Deploying Datalake Ingest BigMagic to:")
 print(f"  Account: {project_config.account_id}")
 print(f"  Region: {project_config.region_name}")
 print(f"  Environment: {project_config.environment.value}")
-      
+
 # Deploy the main BigMagic stack
 base_stack = CdkDatalakeIngestBigmagicStack(
     app,
@@ -52,13 +52,14 @@ base_stack = CdkDatalakeIngestBigmagicStack(
 # Parse tables.csv to understand process_id distribution and shared tables
 tables_data = []
 all_process_ids = set()
-shared_tables = {}  
+shared_tables = {}
 shared_job_registry = {}
+shared_lambda_registry = {}
 
 with open(f'{project_paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/tables.csv', newline='', encoding='utf-8') as tables_file:
     tables_reader = csv.DictReader(tables_file, delimiter=';')
     for row in tables_reader:
-        if row['PROCESS_ID'] and row['SOURCE_SCHEMA'] and row['SOURCE_TABLE']:
+        if row['PROCESS_ID'] and row['SOURCE_SCHEMA'] and row['SOURCE_TABLE'] and row['STATUS'].upper() == 'A':
             tables_data.append(row)
             # Handle multi-process tables (e.g., "10,20,70")
             if ',' in row['PROCESS_ID']:
@@ -93,7 +94,7 @@ def sanitize_stack_name(process_id, endpoint_name):
     """Sanitize stack name to comply with AWS CloudFormation naming rules"""
     clean_process_id = str(process_id).replace(',', '-').replace('_', '-').replace(' ', '-')
     clean_endpoint_name = str(endpoint_name).replace(',', '-').replace('_', '-').replace(' ', '-')
-    stack_name = f"CdkDatalakeIngestGroupStack-{clean_process_id}-{clean_endpoint_name}"
+    stack_name = f"CdkDatalakeIngestBigmagicGroupStack-{clean_process_id}-{clean_endpoint_name}"
     stack_name = stack_name.replace('--', '-')
     return stack_name
 
@@ -136,7 +137,6 @@ for process_id in sorted(all_process_ids):  # Sort to ensure consistent order
             'RawBucketName': base_stack.s3_raw_bucket.bucket_name,
             'StageBucketName': base_stack.s3_stage_bucket.bucket_name,
             'LandingBucketName': base_stack.s3_landing_bucket.bucket_name,
-            'AnalyticsBucketName': base_stack.s3_analytics_bucket.bucket_name,
             'DynamoLogsTableName': base_stack.dynamodb_logs_table.table_name,
             'SnsFailedTopicArn': base_stack.sns_failed_topic.topic_arn,
             'SnsSuccessTopicArn': base_stack.sns_success_topic.topic_arn,
@@ -177,6 +177,8 @@ for process_id in sorted(all_process_ids):  # Sort to ensure consistent order
             base_stack_outputs=base_stack_outputs,
             shared_table_info=is_primary_for_shared,  # Pass shared table information
             shared_job_registry=shared_job_registry,  # Pass the job registry for cross-stack references
+            #shared_lambda_registry=shared_lambda_registry,  # Pass the lambda registry for cross-stack references
+            instance=instance, 
             env=cdk.Environment(
                 account=project_config.account_id,
                 region=project_config.region_name
@@ -197,7 +199,7 @@ for process_id in sorted(all_process_ids):  # Sort to ensure consistent order
 #print(f"instance_groups: {instance_groups}")
 # Second pass: create instance-level Step Functions for parallel processing
 for instance, endpoint_names in instance_groups.items():
-    instance_stack_name = f"CdkDatalakeIngestInstanceStack-{instance}"
+    instance_stack_name = f"CdkDatalakeIngestBigmagicInstanceStack-{instance}"
     
     # Simplified approach: Instance Step Function takes process_id as input
     # No need to collect all group stack references since process_id is dynamic
