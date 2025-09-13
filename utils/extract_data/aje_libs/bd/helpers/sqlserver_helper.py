@@ -1,11 +1,12 @@
-# src/aje_libs/common/helpers/sqlserver_helper.py
-import pyodbc
+#import pyodbc
+import pymssql
 from typing import List, Dict, Any, Optional, Union, Tuple
-from ...common.logger import custom_logger
+from .database_helper import DatabaseHelper
+from ....common.logger import custom_logger
 
 logger = custom_logger(__name__)
 
-class SQLServerHelper:
+class SQLServerHelper(DatabaseHelper):
     """Custom helper for SQL Server to simplify database operations."""
 
     def __init__(
@@ -14,6 +15,7 @@ class SQLServerHelper:
         database: str,
         username: str,
         password: str,
+        port: Optional[int] = 1433,
         driver: str = "SQL Server"
     ) -> None:
         """
@@ -23,12 +25,10 @@ class SQLServerHelper:
         :param database: Database name.
         :param username: SQL Server username.
         :param password: SQL Server password.
+        :param port: SQL Server port (default: 1433).
         :param driver: ODBC driver name (default: "SQL Server").
         """
-        self.server = server
-        self.database = database
-        self.username = username
-        self.password = password
+        super().__init__(server, database, username, password, port)
         self.driver = driver
         self.connection_string = (
             f"DRIVER={{{self.driver}}};"
@@ -37,16 +37,28 @@ class SQLServerHelper:
             f"UID={self.username};"
             f"PWD={self.password}"
         )
+        if port:
+            self.connection_string += f";PORT={port}"
+            
         logger.info(f"Configured helper for SQL Server database: {database} on {server}")
 
-    def connect(self) -> pyodbc.Connection:
+    def connect(self) -> pymssql.Connection:
         """
         Establish a connection to the SQL Server database.
         
         :return: Database connection object.
         """
         try:
-            conn = pyodbc.connect(self.connection_string)
+            conn = pymssql.connect(
+                server=self.server,
+                user=self.username,
+                password=self.password,
+                database=self.database,
+                port=self.port,
+                timeout=120,
+                login_timeout=120,
+                charset='utf8'
+            )
             logger.debug("SQL Server connection established successfully")
             return conn
         except Exception as e:
@@ -74,6 +86,32 @@ class SQLServerHelper:
             return results
         except Exception as e:
             logger.error(f"Error executing query: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def execute_query_as_dataframe(self, query: str, params: Optional[Tuple] = None):
+        """
+        Execute a query and return results as pandas DataFrame.
+        
+        :param query: SQL query to execute.
+        :param params: Parameters for the query (optional).
+        :return: Pandas DataFrame with query results.
+        """
+        conn = self.connect()
+        try:
+            import pandas as pd
+            
+            # Use pandas read_sql which is more efficient for large results
+            if params:
+                df = pd.read_sql(query, conn, params=params)
+            else:
+                df = pd.read_sql(query, conn)
+            
+            logger.info(f"Query executed successfully, returned {len(df)} rows as DataFrame")
+            return df
+        except Exception as e:
+            logger.error(f"Error executing query as DataFrame: {e}")
             raise
         finally:
             conn.close()
@@ -164,11 +202,10 @@ class SQLServerHelper:
             
             # Process results
             results = []
-            for result_set in cursor:
-                if cursor.description:  # Check if there are columns in the result set
-                    columns = [column[0] for column in cursor.description]
-                    for row in result_set:
-                        results.append(dict(zip(columns, row)))
+            if cursor.description:
+                columns = [column[0] for column in cursor.description]
+                for row in cursor.fetchall():
+                    results.append(dict(zip(columns, row)))
             
             logger.info(f"Stored procedure {proc_name} executed successfully")
             return results
@@ -220,3 +257,51 @@ class SQLServerHelper:
             raise
         finally:
             conn.close()
+    
+    def test_connection_and_query(self, test_query: str = "SELECT 1 as test_value") -> Dict[str, Any]:
+        """
+        Test the database connection and execute a simple query to verify everything works.
+        
+        :param test_query: Simple test query to execute (default: SELECT 1)
+        :return: Dictionary with connection and query test results
+        """
+        result = {
+            "connection_successful": False,
+            "query_successful": False,
+            "error": None,
+            "server_info": None,
+            "query_result": None
+        }
+        
+        try:
+            conn = self.connect()
+            result["connection_successful"] = True
+            
+            # Get server information
+            cursor = conn.cursor()
+            cursor.execute("SELECT @@VERSION as server_version, @@SERVERNAME as server_name, DB_NAME() as database_name")
+            server_info = cursor.fetchone()
+            result["server_info"] = {
+                "version": server_info[0] if server_info else None,
+                "server_name": server_info[1] if server_info else None,
+                "database_name": server_info[2] if server_info else None
+            }
+            
+            # Execute test query
+            cursor.execute(test_query)
+            test_result = cursor.fetchall()
+            result["query_successful"] = True
+            result["query_result"] = test_result
+            
+            logger.info("Connection and query test completed successfully")
+            
+        except Exception as e:
+            result["error"] = str(e)
+            logger.error(f"Connection or query test failed: {e}")
+        finally:
+            try:
+                conn.close()
+            except:
+                pass
+                
+        return result

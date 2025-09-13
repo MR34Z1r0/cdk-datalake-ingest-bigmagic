@@ -1,4 +1,5 @@
-import pyodbc
+#import pyodbc
+import pymssql
 from typing import List, Dict, Any, Optional, Union, Tuple
 from .database_helper import DatabaseHelper
 from ....common.logger import custom_logger
@@ -41,14 +42,24 @@ class SQLServerHelper(DatabaseHelper):
             
         logger.info(f"Configured helper for SQL Server database: {database} on {server}")
 
-    def connect(self) -> pyodbc.Connection:
+    def connect(self) -> pymssql.Connection:
         """
         Establish a connection to the SQL Server database.
         
         :return: Database connection object.
         """
         try:
-            conn = pyodbc.connect(self.connection_string)
+            # Use keyword arguments and include port and timeout settings
+            conn = pymssql.connect(
+                server=self.server,
+                user=self.username,
+                password=self.password,
+                database=self.database,
+                port=self.port,
+                timeout=900,  # Connection timeout in seconds (15 minutes)
+                login_timeout=900,  # Login timeout in seconds (15 minutes)
+                charset='utf8'
+            )
             logger.debug("SQL Server connection established successfully")
             return conn
         except Exception as e:
@@ -76,6 +87,45 @@ class SQLServerHelper(DatabaseHelper):
             return results
         except Exception as e:
             logger.error(f"Error executing query: {e}")
+            raise
+        finally:
+            conn.close()
+
+    def execute_query_as_dataframe(self, query: str, params: Optional[Tuple] = None, chunk_size: Optional[int] = None, order_by: Optional[str] = None):
+        """
+        Execute a query and return results as pandas DataFrame. Supports chunked extraction if chunk_size and order_by are provided.
+        :param query: SQL query to execute.
+        :param params: Parameters for the query (optional).
+        :param chunk_size: Number of rows per chunk (optional).
+        :param order_by: Column to order by for chunking (optional).
+        :return: Pandas DataFrame or generator of DataFrames if chunking.
+        """
+        import pandas as pd
+        conn = self.connect()
+        try:
+            if chunk_size and order_by:
+                # Chunked extraction using OFFSET/FETCH
+                offset = 0
+                while True:
+                    chunked_query = f"{query.strip()} ORDER BY {order_by} OFFSET {offset} ROWS FETCH NEXT {chunk_size} ROWS ONLY"
+                    if params:
+                        df = pd.read_sql(chunked_query, conn, params=params)
+                    else:
+                        df = pd.read_sql(chunked_query, conn)
+                    if df.empty:
+                        break
+                    yield df
+                    offset += chunk_size
+            else:
+                # Standard extraction
+                if params:
+                    df = pd.read_sql(query, conn, params=params)
+                else:
+                    df = pd.read_sql(query, conn)
+                logger.info(f"Query executed successfully, returned {len(df)} rows as DataFrame")
+                return df
+        except Exception as e:
+            logger.error(f"Error executing query as DataFrame: {e}")
             raise
         finally:
             conn.close()

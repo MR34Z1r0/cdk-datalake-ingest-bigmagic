@@ -4,8 +4,16 @@ import logging
 from typing import Optional, Union
 import uuid
 
-# External imports
-from aws_lambda_powertools import Logger
+# External imports - conditional import for aws_lambda_powertools
+try:
+    from aws_lambda_powertools import Logger as PowertoolsLogger
+    POWERTOOLS_AVAILABLE = True
+    print("SUCCESS: aws_lambda_powertools imported successfully in logger.py")
+except ImportError as import_err:
+    print(f"WARNING: aws_lambda_powertools import failed in logger.py: {import_err}")
+    # Fallback for environments where aws_lambda_powertools is not available
+    PowertoolsLogger = None
+    POWERTOOLS_AVAILABLE = False
 
 # Variables globales para la configuración
 GLOBAL_LOG_FILE = None
@@ -62,7 +70,7 @@ def custom_logger(
     owner: Optional[str] = None,
     log_level: Optional[int] = None,
     log_file: Optional[str] = None,
-) -> Logger:
+):
     """
     Returns a custom Logger Object with optional file logging capability.
     
@@ -72,7 +80,7 @@ def custom_logger(
     :param owner: Owner name (si es None, usa el global)
     :param log_file: Optional path to log file. If None, uses global setting (which could also be None)
     :param log_level: Logging level for file logger (if None, uses global setting)
-    :return: aws_lambda_powertools.Logger object
+    :return: aws_lambda_powertools.Logger object or standard logging.Logger fallback
     """
     # Usar configuración global si no se proporcionan parámetros específicos
     effective_log_level = log_level if log_level is not None else GLOBAL_LOG_LEVEL
@@ -81,67 +89,96 @@ def custom_logger(
     effective_correlation_id = correlation_id if correlation_id is not None else GLOBAL_CORRELATION_ID
     effective_owner = owner if owner is not None else GLOBAL_OWNER
     
-    # Create the standard powertools logger
-    powertools_logger = Logger(
-        name=name,
-        correlation_id=effective_correlation_id,
-        service=effective_service,
-        owner=effective_owner,
-        log_uncaught_exceptions=True,
-    )
-    
-    # If effective_log_file is set, only then configure file logging
-    if effective_log_file:
-        # Create a standard Python logger for file logging
-        file_logger = logging.getLogger(f"{name}_file") if name else logging.getLogger("file_logger")
-        file_logger.setLevel(effective_log_level)
+    if POWERTOOLS_AVAILABLE:
+        # Create the standard powertools logger
+        powertools_logger = PowertoolsLogger(
+            name=name,
+            correlation_id=effective_correlation_id,
+            service=effective_service,
+            owner=effective_owner,
+            log_uncaught_exceptions=True,
+        )
+        
+        # If effective_log_file is set, only then configure file logging
+        if effective_log_file:
+            # Create a standard Python logger for file logging
+            file_logger = logging.getLogger(f"{name}_file") if name else logging.getLogger("file_logger")
+            file_logger.setLevel(effective_log_level)
+            
+            # Clear existing handlers to avoid duplicates
+            if file_logger.handlers:
+                file_logger.handlers = []
+                
+            # Create file handler
+            file_handler = logging.FileHandler(effective_log_file)
+            file_handler.setLevel(effective_log_level)
+            
+            # Create formatter for file logging
+            formatter = logging.Formatter(
+                '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+                datefmt='%Y-%m-%d %H:%M:%S'
+            )
+            file_handler.setFormatter(formatter)
+            file_logger.addHandler(file_handler)
+            
+            # Attach file logger to powertools logger for file logging
+            powertools_logger._file_logger = file_logger
+            
+            # Override logging methods to also log to file
+            original_info = powertools_logger.info
+            original_error = powertools_logger.error
+            original_warning = powertools_logger.warning
+            original_debug = powertools_logger.debug
+            
+            def info_with_file(message, **kwargs):
+                file_logger.info(message)
+                return original_info(message, **kwargs)
+            
+            def error_with_file(message, **kwargs):
+                file_logger.error(message)
+                return original_error(message, **kwargs)
+            
+            def warning_with_file(message, **kwargs):
+                file_logger.warning(message)
+                return original_warning(message, **kwargs)
+            
+            def debug_with_file(message, **kwargs):
+                file_logger.debug(message)
+                return original_debug(message, **kwargs)
+            
+            powertools_logger.info = info_with_file
+            powertools_logger.error = error_with_file
+            powertools_logger.warning = warning_with_file
+            powertools_logger.debug = debug_with_file
+        
+        return powertools_logger
+    else:
+        # Fallback to standard Python logger when powertools is not available
+        print(f"Using fallback standard logger for: {name or 'default'}")
+        fallback_logger = logging.getLogger(name or 'aje_libs_fallback')
+        fallback_logger.setLevel(effective_log_level)
         
         # Clear existing handlers to avoid duplicates
-        if file_logger.handlers:
-            file_logger.handlers = []
+        if fallback_logger.handlers:
+            fallback_logger.handlers = []
         
-        # Create directory if it doesn't exist
-        log_dir = os.path.dirname(effective_log_file)
-        if log_dir and not os.path.exists(log_dir):
-            os.makedirs(log_dir)
-            
-        # Add file handler
-        file_handler = logging.FileHandler(effective_log_file)
-        file_handler.setLevel(effective_log_level)
+        # Create console handler
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(effective_log_level)
         
         # Create formatter
         formatter = logging.Formatter(
-            '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
         )
-        file_handler.setFormatter(formatter)
-        file_logger.addHandler(file_handler)
+        console_handler.setFormatter(formatter)
+        fallback_logger.addHandler(console_handler)
         
-        # Monkey patch the powertools_logger to also log to file
-        original_info = powertools_logger.info
-        original_error = powertools_logger.error
-        original_warning = powertools_logger.warning
-        original_debug = powertools_logger.debug
+        # Add file handler if specified
+        if effective_log_file:
+            file_handler = logging.FileHandler(effective_log_file)
+            file_handler.setLevel(effective_log_level)
+            file_handler.setFormatter(formatter)
+            fallback_logger.addHandler(file_handler)
         
-        def patched_info(msg, *args, **kwargs):
-            original_info(msg, *args, **kwargs)
-            file_logger.info(msg)
-            
-        def patched_error(msg, *args, **kwargs):
-            original_error(msg, *args, **kwargs)
-            file_logger.error(msg)
-            
-        def patched_warning(msg, *args, **kwargs):
-            original_warning(msg, *args, **kwargs)
-            file_logger.warning(msg)
-            
-        def patched_debug(msg, *args, **kwargs):
-            original_debug(msg, *args, **kwargs)
-            file_logger.debug(msg)
-        
-        # Replace the methods
-        powertools_logger.info = patched_info
-        powertools_logger.error = patched_error
-        powertools_logger.warning = patched_warning
-        powertools_logger.debug = patched_debug
-    
-    return powertools_logger
+        return fallback_logger
