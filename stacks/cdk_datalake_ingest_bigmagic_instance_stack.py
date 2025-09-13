@@ -271,75 +271,75 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
         )
         
         # After all parallel branches complete, invoke domain step function asynchronously with error handling
-        invoke_domain_task = tasks.LambdaInvoke(
-            self, "InvokeDomainStepFunction",
-            lambda_function=_lambda.Function.from_function_arn(
-                self, "DomainLambdaFunction",
-                self.base_stack_outputs["DomainLambdaFunctionArn"]
-            ),
-            payload=sfn.TaskInput.from_object({
-                "process_id.$": "$$.Execution.Input.process_id",
-                "endpoint_name.$": "$$.Execution.Input.endpoint_name", 
-                "instance.$": "$$.Execution.Input.instance",
-                "scheduled_execution.$": "$$.Execution.Input.scheduled_execution",
-                "run_extract.$": "$$.Execution.Input.run_extract",
-                "endpoint_names": self.endpoint_names,
-                "execution_results.$": "$"
-            }),
-            invocation_type=tasks.LambdaInvocationType.EVENT  # Asynchronous invocation
-        )
-        
-        # Add error handling for domain invocation
-        invoke_domain_task.add_catch(
-            tasks.CallAwsService(
-                self, "NotifyDomainFailure",
-                service="sns",
-                action="publish",
-                parameters={
-                    "TopicArn": self.base_stack_outputs["SnsFailedTopicArn"],
-                    "Message": sfn.JsonPath.format(f"Domain step function invocation failed for instance {self.instance_name}"),
-                    "Subject": f"Instance {self.instance_name} - Domain Invocation Failed"
-                },
-                iam_resources=[self.base_stack_outputs["SnsFailedTopicArn"]]
-            ).next(sfn.Pass(self, "DomainInvocationFailedButContinue", comment="Domain invocation failed but instance processing completed")),
-            errors=["States.ALL"]
-        )
+        #invoke_domain_task = tasks.LambdaInvoke(
+        #    self, "InvokeDomainStepFunction",
+        #    lambda_function=_lambda.Function.from_function_arn(
+        #        self, "DomainLambdaFunction",
+        #        self.base_stack_outputs["DomainLambdaFunctionArn"]
+        #    ),
+        #    payload=sfn.TaskInput.from_object({
+        #        "process_id.$": "$$.Execution.Input.process_id",
+        #        "endpoint_name.$": "$$.Execution.Input.endpoint_name", 
+        #        "instance.$": "$$.Execution.Input.instance",
+        #        "scheduled_execution.$": "$$.Execution.Input.scheduled_execution",
+        #        "run_extract.$": "$$.Execution.Input.run_extract",
+        #        "endpoint_names": self.endpoint_names,
+        #        "execution_results.$": "$"
+        #    }),
+        #    invocation_type=tasks.LambdaInvocationType.EVENT  # Asynchronous invocation
+        #)
+        #
+        ## Add error handling for domain invocation
+        #invoke_domain_task.add_catch(
+        #    tasks.CallAwsService(
+        #        self, "NotifyDomainFailure",
+        #        service="sns",
+        #        action="publish",
+        #        parameters={
+        #            "TopicArn": self.base_stack_outputs["SnsFailedTopicArn"],
+        #            "Message": sfn.JsonPath.format(f"Domain step function invocation failed for instance {self.instance_name}"),
+        #            "Subject": f"Instance {self.instance_name} - Domain Invocation Failed"
+        #        },
+        #        iam_resources=[self.base_stack_outputs["SnsFailedTopicArn"]]
+        #    ).next(sfn.Pass(self, "DomainInvocationFailedButContinue", comment="Domain invocation failed but instance processing completed")),
+        #    errors=["States.ALL"]
+        #)
 
 ### miko
-        # After all parallel branches complete, invoke domain step function asynchronously with error handling
-        invoke_legacy_task = tasks.LambdaInvoke(
-            self, "InvokeLegacyStepFunction",
-            lambda_function=_lambda.Function.from_function_arn(
-                self, "LegacyLambdaFunction",
-                self.base_stack_outputs["LegacyLambdaFunctionArn"]
-            ),
-            payload=sfn.TaskInput.from_object({
-                "process_id.$": "$$.Execution.Input.process_id",
-                "endpoint_name.$": "$$.Execution.Input.endpoint_name", 
-                "instance.$": "$$.Execution.Input.instance",
-                "scheduled_execution.$": "$$.Execution.Input.scheduled_execution",
-                "run_extract.$": "$$.Execution.Input.run_extract",
-                "endpoint_names": self.endpoint_names,
-                "execution_results.$": "$"
-            }),
-            invocation_type=tasks.LambdaInvocationType.EVENT  # Asynchronous invocation
-        )
-        
-        # Add error handling for legacy invocation
-        invoke_legacy_task.add_catch(
-            tasks.CallAwsService(
-                self, "NotifyLegacyFailure",
-                service="sns",
-                action="publish",
-                parameters={
-                    "TopicArn": self.base_stack_outputs["SnsFailedTopicArn"],
-                    "Message": sfn.JsonPath.format(f"Legacy step function invocation failed for instance {self.instance_name}"),
-                    "Subject": f"Instance {self.instance_name} - Legacy Invocation Failed"
-                },
-                iam_resources=[self.base_stack_outputs["SnsFailedTopicArn"]]
-            ).next(sfn.Pass(self, "LegacyInvocationFailedButContinue", comment="Legacy invocation failed but instance processing completed")),
-            errors=["States.ALL"]
-        )
+        ## After all parallel branches complete, invoke domain step function asynchronously with error handling
+        #invoke_legacy_task = tasks.LambdaInvoke(
+        #    self, "InvokeLegacyStepFunction",
+        #    lambda_function=_lambda.Function.from_function_arn(
+        #        self, "LegacyLambdaFunction",
+        #        self.base_stack_outputs["LegacyLambdaFunctionArn"]
+        #    ),
+        #    payload=sfn.TaskInput.from_object({
+        #        "process_id.$": "$$.Execution.Input.process_id",
+        #        "endpoint_name.$": "$$.Execution.Input.endpoint_name", 
+        #        "instance.$": "$$.Execution.Input.instance",
+        #        "scheduled_execution.$": "$$.Execution.Input.scheduled_execution",
+        #        "run_extract.$": "$$.Execution.Input.run_extract",
+        #        "endpoint_names": self.endpoint_names,
+        #        "execution_results.$": "$"
+        #    }),
+        #    invocation_type=tasks.LambdaInvocationType.EVENT  # Asynchronous invocation
+        #)
+        #
+        ## Add error handling for legacy invocation
+        #invoke_legacy_task.add_catch(
+        #    tasks.CallAwsService(
+        #        self, "NotifyLegacyFailure",
+        #        service="sns",
+        #        action="publish",
+        #        parameters={
+        #            "TopicArn": self.base_stack_outputs["SnsFailedTopicArn"],
+        #            "Message": sfn.JsonPath.format(f"Legacy step function invocation failed for instance {self.instance_name}"),
+        #            "Subject": f"Instance {self.instance_name} - Legacy Invocation Failed"
+        #        },
+        #        iam_resources=[self.base_stack_outputs["SnsFailedTopicArn"]]
+        #    ).next(sfn.Pass(self, "LegacyInvocationFailedButContinue", comment="Legacy invocation failed but instance processing completed")),
+        #    errors=["States.ALL"]
+        #)
 
 ## end miko
         
@@ -354,34 +354,35 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
         #definition_legacy = parallel_state.next(invoke_legacy_task).next(final_success)
         
 #################################   Ejecucion en paralelo para domain y legacy
-        # 1) Bloque paralelo para llamadas post-ingesta
-        post_invocations = sfn.Parallel(
-            self, "PostIngestionInvocations",
-            comment=f"Invoke Domain and Legacy in parallel for instance {self.instance_name}"
-        )
+        ## 1) Bloque paralelo para llamadas post-ingesta
+        #post_invocations = sfn.Parallel(
+        #    self, "PostIngestionInvocations",
+        #    comment=f"Invoke Domain and Legacy in parallel for instance {self.instance_name}"
+        #)
 
-        # Cada rama es el task ya definido (con sus catches propios)
-        post_invocations.branch(invoke_domain_task)
-        post_invocations.branch(invoke_legacy_task)
+        ## Cada rama es el task ya definido (con sus catches propios)
+        #post_invocations.branch(invoke_domain_task)
+        #post_invocations.branch(invoke_legacy_task)
 
-        # (Opcional) catch de nivel paralelo si quieres una notificación "global" adicional
-        post_invocations.add_catch(
-            tasks.CallAwsService(
-                self, "NotifyPostInvocationsFailure",
-                service="sns",
-                action="publish",
-                parameters={
-                    "TopicArn": self.base_stack_outputs["SnsFailedTopicArn"],
-                    "Message": sfn.JsonPath.format(f"Post invocations (Domain/Legacy) failed for instance {self.instance_name}"),
-                    "Subject": f"Instance {self.instance_name} - Post Invocations Failed"
-                },
-                iam_resources=[self.base_stack_outputs["SnsFailedTopicArn"]]
-            ).next(sfn.Pass(self, "PostInvocationsFailedButContinue", comment="Post invocations failed but instance processing completed")),
-            errors=["States.ALL"]
-        )
+        ## (Opcional) catch de nivel paralelo si quieres una notificación "global" adicional
+        #post_invocations.add_catch(
+        #    tasks.CallAwsService(
+        #        self, "NotifyPostInvocationsFailure",
+        #        service="sns",
+        #        action="publish",
+        #        parameters={
+        #            "TopicArn": self.base_stack_outputs["SnsFailedTopicArn"],
+        #            "Message": sfn.JsonPath.format(f"Post invocations (Domain/Legacy) failed for instance {self.instance_name}"),
+        #            "Subject": f"Instance {self.instance_name} - Post Invocations Failed"
+        #        },
+        #        iam_resources=[self.base_stack_outputs["SnsFailedTopicArn"]]
+        #    ).next(sfn.Pass(self, "PostInvocationsFailedButContinue", comment="Post invocations failed but instance processing completed")),
+        #    errors=["States.ALL"]
+        #)
 
         # 2) Nueva definición: endpoints en paralelo -> (Domain & Legacy) en paralelo -> success
-        definition = parallel_state.next(post_invocations).next(final_success)
+        #definition = parallel_state.next(post_invocations).next(final_success)
+        definition = parallel_state.next(final_success)
 #################################   FIN Ejecucion en paralelo para domain y legacy
 
         # Create the Step Function

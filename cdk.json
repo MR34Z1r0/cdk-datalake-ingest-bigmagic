@@ -45,7 +45,9 @@
             "landing": "sofia-dev-datalake-510543735161-us-east-1-landing-s3",
             "raw": "sofia-dev-datalake-510543735161-us-east-1-raw-s3",
             "stage": "sofia-dev-datalake-510543735161-us-east-1-stage-s3",
-            "analytics": "sofia-dev-datalake-510543735161-us-east-1-analytics-s3"
+            "analytics": "sofia-dev-datalake-510543735161-us-east-1-analytics-s3",
+            "athena": "sofia-dev-datalake-510543735161-us-east-1-athena-s3",
+            "external": "sofia-dev-datalake-510543735161-us-east-1-external-s3"
           },
           "dynamodb_tables":{
             "configuration": "sofia-dev-datalake-configuration-ddb",
