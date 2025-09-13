@@ -17,6 +17,7 @@ from dateutil.relativedelta import relativedelta
 
 IS_AWS_GLUE = True
 IS_AWS_S3 = True
+PARQUET_AVAILABLE = True
 
 import pyarrow as pa
 import pyarrow.parquet as pq
@@ -1259,6 +1260,7 @@ class DataExtractor:
                     kwargs = {}
                     if order_by:
                         kwargs = {'chunk_size': chunk_size, 'order_by': order_by}
+                    print(f"Starting task {i + 1}/{total_tasks} with chunking params: {kwargs}")
                     future = executor.submit(
                         self.get_data,
                         all_queries[i],

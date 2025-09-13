@@ -1,137 +1,102 @@
 """
-Lambda function to dynamically invoke Step Functions for database processing.
+Lambda function to prepare input parameters for group step function invocation.
+
+This lambda is called by the instance step function to prepare input data
+for the specific group step function that will be invoked synchronously.
 
 This function receives:
-- group_step_function_arn: The ARN of the group Step Function to invoke
 - process_id: The process ID to pass to the Step Function
-- database: The database name being processed
+- endpoint_name: The endpoint name being processed
 - instance: The instance name
 
 Returns:
-- Execution details and result from the Step Function
+- Prepared input parameters for the group step function
 """
 
-import boto3
 import json
 import logging
+from datetime import datetime
+from typing import Dict, Any
 
 # Configure logging
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
 
-
-def lambda_handler(event, context):
+def lambda_handler(event: Dict[str, Any], context) -> Dict[str, Any]:
     """
-    Main Lambda handler function
+    Prepare input parameters for group step function invocation.
+    This lambda is called by the instance step function to prepare input data
+    for the specific group step function that will be invoked synchronously.
+    
+    Args:
+        event: Input event containing process_id, endpoint_name, and instance
+        
+    Returns:
+        Dict containing prepared input parameters for the group step function
     """
     try:
-        # Extract inputs
-        group_step_function_arn = event.get('group_step_function_arn')
+        logger.info(f"Processing input preparation request: {json.dumps(event, indent=2)}")
+        
+        # Extract required parameters
         process_id = event.get('process_id')
-        run_extract = event.get('run_extract')
         endpoint_name = event.get('endpoint_name')
         instance = event.get('instance')
         
-        logger.info(f"Processing endpoint_name: {endpoint_name}, instance: {instance}, process_id: {process_id}, run_extract: {run_extract}")
+        # Validate required parameters
+        if not process_id or not endpoint_name or not instance:
+            error_msg = f"Missing required parameters. process_id: {process_id}, endpoint_name: {endpoint_name}, instance: {instance}"
+            logger.error(error_msg)
+            return {
+                'statusCode': 400,
+                'body': json.dumps({
+                    'error': 'Missing required parameters',
+                    'message': error_msg,
+                    'timestamp': datetime.now().isoformat()
+                })
+            }
         
-        # Extract Step Function name from ARN for better error reporting
-        step_function_name = group_step_function_arn.split(':')[-1] if group_step_function_arn else "unknown"
+        # Extract optional parameters
+        run_extract = event.get('run_extract', True)
+        scheduled_execution= event.get('scheduled_execution', True)
+        additional_params = event.get('additional_params', {})
         
-        # Validate required inputs
-        if not group_step_function_arn:
-            raise ValueError("group_step_function_arn is required")
-        if not process_id:
-            raise ValueError("process_id is required")
-        
-        # Create Step Functions client
-        client = boto3.client('stepfunctions')
-        
-        # Prepare input for the Step Function
-        step_function_input = {
-            "process_id": process_id,
-            "run_extract": run_extract,
+        # Prepare the input for the group step function
+        prepared_input = {
+            'endpoint_name': endpoint_name,
+            'process_id': process_id,
             'instance': instance,
-            "endpoint_name": endpoint_name
+            'scheduled_execution': scheduled_execution,
+            'run_extract': run_extract,
+            'execution_timestamp': datetime.now().isoformat(),
+            'source': 'instance_step_function',
+            'prepared_by': 'invoke_step_function_lambda'
         }
         
-        logger.info(f"Starting execution of Step Function: {group_step_function_arn}")
-        logger.info(f"Step Function input: {json.dumps(step_function_input)}")
-        logger.info(f"Extracted Step Function name: {step_function_name}")
+        # Add any additional parameters
+        if additional_params:
+            prepared_input.update(additional_params)
         
-        # Start execution with process_id as input
-        response = client.start_execution(
-            stateMachineArn=group_step_function_arn,
-            input=json.dumps(step_function_input)
-        )
-        
-        execution_arn = response['executionArn']
-        logger.info(f"Step Function execution started: {execution_arn}")
-        
-        # Instead of waiting for completion (which can timeout Lambda), return immediately
-        # The calling Step Function will handle orchestration and status checking
-        logger.info(f"Step Function execution initiated successfully: {execution_arn}")
+        logger.info(f"Successfully prepared input for group step function: {json.dumps(prepared_input, indent=2)}")
         
         return {
             'statusCode': 200,
-            'endpoint_name': endpoint_name,
-            'instance': instance,
-            'process_id': process_id,
-            'run_extract': run_extract,
-            'execution_arn': execution_arn,
-            'status': 'RUNNING',
-            'message': 'Step Function execution started successfully'
-        }
-        
-    except client.exceptions.StateMachineDoesNotExist as e:
-        logger.error(f"Step Function does not exist: {group_step_function_arn}")
-        logger.error(f"Expected Step Function name: {step_function_name}")
-        logger.error(f"Error details: {str(e)}")
-        return {
-            'statusCode': 404,
-            'error': 'StateMachineDoesNotExist',
-            'message': f"Step Function not found: {step_function_name}",
-            'step_function_arn': group_step_function_arn,
-            'endpoint_name': endpoint_name,
-            'run_extract': run_extract,
-            'instance': instance,
-            'process_id': process_id
-        }
-        
-    except client.exceptions.ExecutionLimitExceeded as e:
-        logger.error(f"Step Function execution limit exceeded: {str(e)}")
-        return {
-            'statusCode': 429,
-            'error': 'ExecutionLimitExceeded',
-            'message': str(e),
-            'endpoint_name': endpoint_name,
-            'run_extract': run_extract,
-            'instance': instance,
-            'process_id': process_id
-        }
-        
-    except client.exceptions.ExecutionDoesNotExist as e:
-        logger.error(f"Step Function execution does not exist: {str(e)}")
-        return {
-            'statusCode': 404,
-            'error': 'ExecutionDoesNotExist',
-            'message': str(e),
-            'endpoint_name': endpoint_name,
-            'run_extract': run_extract,
-            'instance': instance,
-            'process_id': process_id
+            'body': json.dumps({
+                'message': 'Input prepared successfully',
+                'prepared_input': prepared_input,
+                'timestamp': datetime.now().isoformat()
+            }),
+            'prepared_input': prepared_input  # Return directly for step function use
         }
         
     except Exception as e:
-        logger.error(f"Error invoking Step Function: {str(e)}")
-        # Safely get step_function_name
-        step_function_name = locals().get('step_function_name', 'unknown')
+        error_msg = f"Error preparing input for group step function: {str(e)}"
+        logger.error(error_msg, exc_info=True)
+        
         return {
             'statusCode': 500,
-            'error': 'InternalError',
-            'message': str(e),
-            'step_function_name': step_function_name,
-            'endpoint_name': endpoint_name,
-            'run_extract': run_extract,
-            'instance': instance,
-            'process_id': process_id
+            'body': json.dumps({
+                'error': 'Input preparation failed',
+                'message': error_msg,
+                'timestamp': datetime.now().isoformat()
+            })
         }

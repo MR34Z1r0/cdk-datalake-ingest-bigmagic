@@ -30,6 +30,7 @@ class Paths:
         self.AWS_ARTIFACTS_CONFIGURE = f'{self.TEAM}/{self.DATASOURCE}/configuration'
         self.AWS_ARTIFACTS_CONFIGURE_CSV = f'{self.AWS_ARTIFACTS_CONFIGURE}/csv'
         self.AWS_ARTIFACTS_GLUE = f'{self.TEAM}/{self.DATASOURCE}/aws-glue'
+        self.AWS_ARTIFACTS_GLUE_CSV = f'{self.AWS_ARTIFACTS_GLUE}/csv'
         self.AWS_ARTIFACTS_GLUE_CODE = f'{self.AWS_ARTIFACTS_GLUE}/code'
         self.AWS_ARTIFACTS_GLUE_CODE_RAW = f'{self.AWS_ARTIFACTS_GLUE_CODE}/raw'
         self.AWS_ARTIFACTS_GLUE_CODE_STAGE = f'{self.AWS_ARTIFACTS_GLUE_CODE}/stage'

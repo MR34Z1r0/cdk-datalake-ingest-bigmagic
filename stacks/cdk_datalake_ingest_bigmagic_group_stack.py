@@ -137,10 +137,11 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
             else:
                 # Reference jobs from the registry (created in another stack)
                 job_info = self._reference_jobs_from_registry(logical_name)
+                extract_job_name = self.name_builder.build(Services.GLUE_JOB, job_info['extract_job_name'])
                 if job_info:
                     # Add referenced jobs to our registry too
                     self.job_name_registry.append({
-                        'extract_job_name': job_info['extract_job_name'],
+                        'extract_job_name': extract_job_name,
                         'light_job_name': job_info['light_job_name'],
                         'table_name': logical_name
                     })
@@ -331,7 +332,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                     "process_id": str(self.process_id),
                     "endpoint_name": self.endpoint_name,
                     "execution_start.$": "$$.Execution.StartTime",
-                    "job_type": "extract"
+                    "job_type": "extract",
                 },
                 result_path="$.extract_job_configs"
             )
@@ -351,7 +352,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                     "process_id": str(self.process_id),
                     "endpoint_name": self.endpoint_name,
                     "execution_start.$": "$$.Execution.StartTime",
-                    "job_type": "transform"
+                    "job_type": "transform",
                 },
                 result_path=None
             )
@@ -363,7 +364,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
                     "process_id": str(self.process_id),
                     "endpoint_name": self.endpoint_name,
                     "execution_start.$": "$$.Execution.StartTime",
-                    "job_type": "transform"
+                    "job_type": "transform",
                 },
                 result_path=None  # Overwrite input with this object
             )
@@ -556,7 +557,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         
         sf_config = StepFunctionConfig(
             name=sf_name,
-            definition=definition,
+            definition_body=sfn.DefinitionBody.from_chainable(definition),
             timeout=Duration.hours(4),  # Extend timeout to handle multiple jobs
             role=self.role_step_function,
             tags=step_function_tags
