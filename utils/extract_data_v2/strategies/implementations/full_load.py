@@ -18,9 +18,11 @@ class FullLoadStrategy(ExtractionStrategy):
         logger.info(f"=== FULL LOAD STRATEGY - Building Params ===")
         logger.info(f"Table: {self.extraction_config.table_name}")
         
-        # 🎯 FULL LOAD NO USA WATERMARKS
-        if self.watermark_storage:
-            logger.info("⚠️  Watermark storage provided but not used in full load strategy")
+        # Detectar si necesita particionado
+        if self._should_use_partitioned_load():
+            logger.info("⚠️ Partitioned full load detected - will be handled by orchestrator")
+            # Para particionado, retornar parámetros que indiquen que se necesita min/max
+            return self._build_partitioned_params()
         
         # Crear parámetros básicos
         params = ExtractionParams(
@@ -29,22 +31,43 @@ class FullLoadStrategy(ExtractionStrategy):
             metadata=self._build_basic_metadata()
         )
         
-        # Agregar filtros básicos si existen (SIN watermarks)
+        # Agregar filtros básicos (sin fechas hardcodeadas)
         basic_filters = self._build_basic_filters()
         for filter_condition in basic_filters:
             params.add_where_condition(filter_condition)
         
-        # Configurar chunking si es apropiado
-        if self._should_use_chunking():
-            params.chunk_size = self.extraction_config.chunk_size
-            params.chunk_column = self._get_chunking_column()
-            logger.info(f"Chunking enabled - Size: {params.chunk_size}, Column: {params.chunk_column}")
-        
-        logger.info(f"Full load extraction params built - Columns: {len(params.columns)}, Where conditions: {len(params.where_conditions)}")
-        logger.info("=== END FULL LOAD STRATEGY ===")
-        
         return params
     
+    def _should_use_partitioned_load(self) -> bool:
+        """Detecta si la tabla requiere particionado"""
+        return (
+            hasattr(self.table_config, 'source_table_type') and 
+            self.table_config.source_table_type == 't' and
+            hasattr(self.table_config, 'partition_column') and 
+            self.table_config.partition_column and 
+            self.table_config.partition_column.strip() != ''
+        )
+
+    def _build_partitioned_params(self) -> ExtractionParams:
+        """Construye parámetros especiales para carga particionada"""
+        params = ExtractionParams(
+            table_name=self._get_source_table_name(),
+            columns=self._parse_columns(),
+            metadata={
+                **self._build_basic_metadata(),
+                'needs_partitioning': True,
+                'partition_column': self.table_config.partition_column,
+                'source_table_type': self.table_config.source_table_type
+            }
+        )
+        
+        # Solo agregar FILTER_EXP, no fechas hardcodeadas
+        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp:
+            filter_exp = self.table_config.filter_exp.strip().replace('"', '')
+            params.add_where_condition(f"({filter_exp})")
+        
+        return params
+
     def validate(self) -> bool:
         """Valida configuración para carga completa"""
         logger.info("=== FULL LOAD STRATEGY VALIDATION ===")
@@ -91,49 +114,26 @@ class FullLoadStrategy(ExtractionStrategy):
         
         return base_estimate
     
-    def _parse_columns(self) -> List[str]:
-        """Parse column string into list, incluyendo ID_COLUMN"""
-        columns_list = []
-        
-        # Agregar ID_COLUMN si existe
-        if hasattr(self.table_config, 'id_column') and self.table_config.id_column and self.table_config.id_column.strip():
-            id_column_expr = f"{self.table_config.id_column.strip()} as id"
-            columns_list.append(id_column_expr)
-        
-        # Agregar las columnas regulares
-        if self.table_config.columns and self.table_config.columns.strip():
-            columns_list.append(self.table_config.columns.strip())
-        else:
-            columns_list.append('*')
-        
-        return [', '.join(columns_list)]
-
-    def _get_source_table_name(self) -> str:
-        """Obtiene el nombre de la tabla fuente CON JOIN_EXPR si existe"""
-        source_table = f"{self.table_config.source_schema}.{self.table_config.source_table}"
-        
-        # Agregar JOIN_EXPR si existe
-        if hasattr(self.table_config, 'join_expr') and self.table_config.join_expr and self.table_config.join_expr.strip():
-            source_table += f" {self.table_config.join_expr.strip()}"
-        
-        return source_table
-
     def _build_basic_filters(self) -> List[str]:
-        """Construye filtros básicos incluyendo FILTER_EXP"""
+        """Construye filtros básicos sin complejidad excesiva"""
         filters = []
         
-        # Agregar FILTER_EXP si existe
-        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp and self.table_config.filter_exp.strip():
-            filter_exp = self.table_config.filter_exp.strip().replace('"', '')
-            filters.append(f"({filter_exp})")
+        # Filtro básico de la configuración
+        if hasattr(self.table_config, 'basic_filter') and self.table_config.basic_filter:
+            filters.append(self.table_config.basic_filter.strip())
         
-        # Agregar filtro de fechas si está configurado
-        if (hasattr(self.table_config, 'filter_column') and self.table_config.filter_column and
-            hasattr(self.table_config, 'partition_column') and self.table_config.partition_column):
+        # Filtros de fecha si están configurados (simplificado)
+        if (hasattr(self.table_config, 'filter_column') and 
+            self.table_config.filter_column and 
+            hasattr(self.table_config, 'delay_incremental_ini') and
+            self.table_config.delay_incremental_ini):
             
-            # Para full load, usar el rango completo configurado
-            date_filter = self.table_config.filter_column.replace('{0}', '733408').replace('{1}', '739524')
-            filters.append(f"({date_filter})")
+            try:
+                date_filter = self._build_simple_date_filter()
+                if date_filter:
+                    filters.append(date_filter)
+            except Exception as e:
+                logger.warning(f"Could not build date filter: {e}")
         
         return filters
     
