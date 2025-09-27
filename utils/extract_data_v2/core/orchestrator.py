@@ -466,13 +466,25 @@ class DataExtractionOrchestrator:
             self.logger.info(f"🔍 DEBUG query: {query}")
 
             # 🎯 PASAR PARÁMETROS DE CHUNKING AL EXTRACTOR
+            self.logger.info(f"🔍 DEBUG: About to call extract_data with chunk_size={chunk_size}, order_by={order_by}")
             data_iterator = self.extractor.extract_data(query, chunk_size, order_by)
-            
+            self.logger.info(f"🔍 DEBUG: Got data_iterator: {type(data_iterator)}")
+
             destination_path = metadata.get('destination_path', self._build_destination_path())
-            
+            self.logger.info(f"🔍 DEBUG: Destination path: {destination_path}")
+
             chunk_count = 0
+            self.logger.info(f"🔍 DEBUG: Starting to iterate over chunks...")
             for chunk_df in data_iterator:
+                chunk_count += 1
+                self.logger.info(f"🔍 DEBUG: Processing chunk {chunk_count}")
+                self.logger.info(f"🔍 DEBUG: chunk_df type: {type(chunk_df)}")
+                self.logger.info(f"🔍 DEBUG: chunk_df is None: {chunk_df is None}")
+                if chunk_df is not None:
+                    self.logger.info(f"🔍 DEBUG: chunk_df.empty: {chunk_df.empty}")
+                    self.logger.info(f"🔍 DEBUG: chunk_df length: {len(chunk_df)}")
                 if chunk_df is not None and not chunk_df.empty:
+                    self.logger.info(f"🔍 DEBUG: Processing valid chunk with {len(chunk_df)} rows")
                     # Load data chunk
                     file_path = self.loader.load_dataframe(
                         chunk_df, 
@@ -699,34 +711,71 @@ class DataExtractionOrchestrator:
 
     def _execute_partition_query(self, thread_id: int, query_metadata: Dict[str, Any]) -> tuple:
         """Ejecuta una query particionada individual"""
+        self.logger.info(f"🔍 DEBUG: Starting _execute_partition_query for thread {thread_id}")
+        
         query = query_metadata['query']
         metadata = query_metadata.get('metadata', {})
         
-        # Usar la lógica existente de _execute_single_query pero sin el check de min_max
-        # (implementar la extracción normal con chunking si es necesario)
-        
-        chunk_size = metadata.get('chunk_size', self.extraction_config.chunk_size)
-        chunking_params = metadata.get('chunking_params', {})
-        order_by = chunking_params.get('order_by')
+        self.logger.info(f"🔍 DEBUG: Partition query: {query[:100]}...")
         
         files_created = []
         total_records = 0
         
-        for chunk_df in self.extractor.extract_data(query, chunk_size, order_by):
-            if chunk_df.empty:
-                continue
-                
-            file_path = self.loader.load_data(
-                chunk_df, 
-                thread_id, 
-                metadata.get('partition_index', 0)
-            )
+        try:
+            # Obtener parámetros de chunking
+            chunk_size = metadata.get('chunk_size', self.extraction_config.chunk_size)
+            chunking_params = metadata.get('chunking_params', {})
+            order_by = chunking_params.get('order_by')
             
-            if file_path:
-                files_created.append(file_path)
-            total_records += len(chunk_df)
-        
-        return files_created, total_records
+            self.logger.info(f"🔍 DEBUG: chunk_size={chunk_size}, order_by={order_by}")
+            
+            # Usar el extractor para obtener datos en chunks
+            destination_path = metadata.get('destination_path', self._build_destination_path())
+            
+            chunk_count = 0
+            for chunk_df in self.extractor.extract_data(query, chunk_size, order_by):
+                chunk_count += 1
+                self.logger.info(f"🔍 DEBUG: Processing chunk {chunk_count} for thread {thread_id}")
+                
+                if chunk_df is not None and not chunk_df.empty:
+                    self.logger.info(f"🔍 DEBUG: Chunk {chunk_count} has {len(chunk_df)} rows")
+                    
+                    # Cargar chunk al destino
+                    file_path = self.loader.load_dataframe(
+                        chunk_df, 
+                        destination_path, 
+                        thread_id=f"{thread_id}_{chunk_count-1}"
+                    )
+                    
+                    if file_path:
+                        files_created.append(file_path)
+                    
+                    total_records += len(chunk_df)
+                    self.logger.info(f"🔍 DEBUG: Thread {thread_id} chunk {chunk_count}: {len(chunk_df)} records, file: {file_path}")
+                else:
+                    self.logger.info(f"🔍 DEBUG: Chunk {chunk_count} for thread {thread_id} is empty or None")
+            
+            self.logger.info(f"🔍 DEBUG: Thread {thread_id} completed: {total_records} total records, {len(files_created)} files")
+            
+            # Si no se extrajeron datos, crear archivo vacío
+            if total_records == 0:
+                self.logger.info(f"🔍 DEBUG: Creating empty file for thread {thread_id}")
+                empty_df = pd.DataFrame()  # DataFrame vacío
+                file_path = self.loader.load_dataframe(
+                    empty_df, 
+                    destination_path, 
+                    thread_id=f"{thread_id}_0"
+                )
+                if file_path:
+                    files_created.append(file_path)
+            
+            return files_created[0] if files_created else None, total_records
+            
+        except Exception as e:
+            self.logger.error(f"🔍 ERROR in _execute_partition_query for thread {thread_id}: {e}")
+            import traceback
+            self.logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+            raise ExtractionError(f"Failed to execute partition query for thread {thread_id}: {e}")
 
     def _handle_empty_result(self) -> tuple:
         """Handle case where no data was extracted"""

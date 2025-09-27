@@ -118,6 +118,18 @@ class Settings:
     
     def _load_local_config(self) -> Dict[str, Any]:
         """Load configuration for local development"""
+        
+        # Verificar que todas las variables críticas estén presentes
+        required_vars = ['MAX_THREADS', 'CHUNK_SIZE', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE']
+        missing_vars = []
+        
+        for var in required_vars:
+            if os.getenv(var) is None:
+                missing_vars.append(var)
+        
+        if missing_vars:
+            raise ValueError(f"Missing required environment variables: {missing_vars}. Check your .env file.")
+        
         return {
             'S3_RAW_BUCKET': os.getenv('S3_RAW_BUCKET'),
             'PROJECT_NAME': os.getenv('PROJECT_NAME'),
@@ -126,15 +138,18 @@ class Settings:
             'ENVIRONMENT': os.getenv('ENVIRONMENT'),
             'REGION': os.getenv('REGION'),
             'DYNAMO_LOGS_TABLE': os.getenv('DYNAMO_LOGS_TABLE'),
-            'TABLE_NAME': os.getenv('TABLE_NAME'),
+            'TABLE_NAME': os.getenv('TABLE_NAME', ''),
             'TABLES_CSV_S3': os.getenv('TABLES_CSV_S3'),
             'CREDENTIALS_CSV_S3': os.getenv('CREDENTIALS_CSV_S3'),
             'COLUMNS_CSV_S3': os.getenv('COLUMNS_CSV_S3'),
             'ENDPOINT_NAME': os.getenv('ENDPOINT_NAME'),
             'TOPIC_ARN': os.getenv('TOPIC_ARN'),
+            
+            # VALORES CRÍTICOS SIN FALLBACKS - DEBEN ESTAR EN .env
             'FORCE_FULL_LOAD': os.getenv('FORCE_FULL_LOAD').lower() == 'true',
             'MAX_THREADS': int(os.getenv('MAX_THREADS')),
             'CHUNK_SIZE': int(os.getenv('CHUNK_SIZE')),
+            
             'OUTPUT_FORMAT': os.getenv('OUTPUT_FORMAT'),
             'EXTRACTOR_TYPE': os.getenv('EXTRACTOR_TYPE'),
             'LOADER_TYPE': os.getenv('LOADER_TYPE'),
@@ -144,9 +159,18 @@ class Settings:
             'WATERMARK_TABLE': os.getenv('WATERMARK_TABLE'),
             'WATERMARK_CSV_PATH': os.getenv('WATERMARK_CSV_PATH'),
             'WATERMARK_PG_CONNECTION': os.getenv('WATERMARK_PG_CONNECTION'),
-            'WATERMARK_PG_SCHEMA': os.getenv('WATERMARK_PG_SCHEMA')
+            'WATERMARK_PG_SCHEMA': os.getenv('WATERMARK_PG_SCHEMA'),
+            
+            # NUEVOS PARÁMETROS
+            'CONNECTION_TIMEOUT': int(os.getenv('CONNECTION_TIMEOUT')),
+            'LOGIN_TIMEOUT': int(os.getenv('LOGIN_TIMEOUT')),
+            'MAX_RETRIES': int(os.getenv('MAX_RETRIES')),
+            'RETRY_DELAY': int(os.getenv('RETRY_DELAY')),
+            'USE_SQLALCHEMY': os.getenv('USE_SQLALCHEMY').lower() == 'true',
+            'CONNECTION_POOL_SIZE': int(os.getenv('CONNECTION_POOL_SIZE')),
+            'CONNECTION_POOL_RECYCLE': int(os.getenv('CONNECTION_POOL_RECYCLE'))
         }
-    
+
     def get(self, key: str, default: Any = None) -> Any:
         return self._config.get(key, default)
     

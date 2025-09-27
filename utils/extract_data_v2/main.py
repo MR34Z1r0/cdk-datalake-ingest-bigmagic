@@ -79,8 +79,7 @@ Examples:
     parser.add_argument(
         '--max-threads',
         type=int,
-        default=6,
-        help='Maximum number of threads for parallel processing (default: 6)'
+        help='Maximum number of threads for parallel processing (overrides .env)'
     )
     
     parser.add_argument(
@@ -93,8 +92,7 @@ Examples:
     parser.add_argument(
         '--chunk-size',
         type=int,
-        default=500000,
-        help='Chunk size for large table processing (default: 500000)'
+        help='Chunk size for large table processing (overrides .env)'
     )
     
     parser.add_argument(
@@ -175,8 +173,8 @@ def create_extraction_config(args) -> ExtractionConfig:
         s3_raw_bucket=base_config.get('S3_RAW_BUCKET'),
         dynamo_logs_table=base_config.get('DYNAMO_LOGS_TABLE'),
         topic_arn=base_config.get('TOPIC_ARN'),
-        max_threads=base_config.get('MAX_THREADS', 6),
-        chunk_size=base_config.get('CHUNK_SIZE', 500000),
+        max_threads=base_config['MAX_THREADS'],
+        chunk_size=base_config['CHUNK_SIZE'],
         force_full_load=base_config.get('FORCE_FULL_LOAD', False),
         output_format=base_config.get('OUTPUT_FORMAT', 'parquet')
     )
