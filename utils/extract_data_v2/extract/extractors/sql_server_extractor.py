@@ -58,7 +58,7 @@ class SQLServerExtractor(ExtractorInterface):
         try:
             if not self.connection:
                 self.connect()
-            print("SINGLE QUERY: {query}")
+            print(f"SINGLE QUERY: {query}")
             if params:
                 df = pd.read_sql(query, self.connection, params=params)
             else:
