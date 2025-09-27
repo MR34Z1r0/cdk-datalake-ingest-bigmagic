@@ -617,6 +617,37 @@ class DataExtractionOrchestrator:
         
         return queries
 
+    def _parse_columns_for_partition(self) -> str:
+        """Construye las columnas para queries particionadas"""
+        columns_list = []
+        
+        # Agregar ID_COLUMN si existe
+        if hasattr(self.table_config, 'id_column') and self.table_config.id_column and self.table_config.id_column.strip():
+            id_column_expr = f"{self.table_config.id_column.strip()} as id"
+            columns_list.append(id_column_expr)
+        
+        # Agregar las columnas regulares
+        if self.table_config.columns and self.table_config.columns.strip():
+            columns_list.append(self.table_config.columns.strip())
+        else:
+            columns_list.append('*')
+        
+        return ', '.join(columns_list)
+
+    def _get_chunking_params_for_partition(self) -> dict:
+        """Obtiene parámetros de chunking para particiones"""
+        chunking_params = {}
+        
+        # Si tiene partition_column configurado, usar para chunking
+        if hasattr(self.table_config, 'partition_column') and self.table_config.partition_column:
+            chunking_params['order_by'] = self.table_config.partition_column.strip()
+        
+        # Agregar chunk_size si está configurado
+        if self.extraction_config.chunk_size:
+            chunking_params['chunk_size'] = self.extraction_config.chunk_size
+        
+        return chunking_params
+
     def _build_partitioned_query(self, partition_column: str, start_value: int, end_value: int) -> str:
         """Construye una query particionada individual"""
         # Construir columnas con ID_COLUMN si existe
