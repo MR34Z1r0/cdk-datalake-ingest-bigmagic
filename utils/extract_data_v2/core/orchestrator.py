@@ -441,6 +441,10 @@ class DataExtractionOrchestrator:
         query = query_metadata['query']
         metadata = query_metadata.get('metadata', {})
         
+        # Detectar si es una query MIN/MAX para particionado
+        if metadata.get('query_type') == 'min_max' and metadata.get('needs_partitioned_queries'):
+            return self._handle_min_max_query(query, metadata)
+    
         files_created = []
         total_records = 0
         max_extracted_value = None
@@ -541,6 +545,158 @@ class DataExtractionOrchestrator:
         except Exception as e:
             raise ExtractionError(f"Failed to execute query for thread {thread_id}: {e}")
     
+    def _handle_min_max_query(self, min_max_query: str, metadata: Dict[str, Any]) -> tuple:
+        """Maneja la ejecución de query MIN/MAX y genera queries particionadas"""
+        self.logger.info("🔍 Handling MIN/MAX query for partitioned load")
+        
+        try:
+            # 1. Ejecutar query MIN/MAX
+            df_results = []
+            for chunk_df in self.extractor.extract_data(min_max_query):
+                df_results.append(chunk_df)
+            
+            if not df_results or df_results[0].empty:
+                raise ExtractionError("MIN/MAX query returned no results")
+            
+            # 2. Extraer valores MIN/MAX
+            df = df_results[0]
+            min_val = df['min_val'].iloc[0]
+            max_val = df['max_val'].iloc[0]
+            
+            if min_val is None or max_val is None:
+                raise ExtractionError("MIN/MAX values are None")
+            
+            min_val = int(min_val)
+            max_val = int(max_val)
+            
+            self.logger.info(f"🔍 MIN/MAX results: min={min_val}, max={max_val}")
+            
+            # 3. Generar queries particionadas
+            partitioned_queries = self._generate_partitioned_queries(min_val, max_val, metadata)
+            
+            # 4. Ejecutar queries particionadas en paralelo
+            return self._execute_partitioned_queries(partitioned_queries)
+            
+        except Exception as e:
+            raise ExtractionError(f"Failed to handle MIN/MAX query: {e}")
+    
+    def _generate_partitioned_queries(self, min_val: int, max_val: int, metadata: Dict[str, Any]) -> List[Dict[str, Any]]:
+        """Genera queries particionadas basadas en los valores MIN/MAX"""
+        partition_column = metadata['partition_column']
+        max_threads = min(self.extraction_config.max_threads, 30)
+        
+        range_size = max_val - min_val
+        number_threads = min(max_threads, max(1, range_size))
+        increment = max(1, range_size // number_threads)
+        
+        self.logger.info(f"🔍 Generating {number_threads} partitioned queries - Range: {range_size}, Increment: {increment}")
+        
+        queries = []
+        for i in range(number_threads):
+            start_value = int(min_val + (increment * i))
+            
+            if i == number_threads - 1:
+                end_value = max_val + 1  # Incluir el último valor
+            else:
+                end_value = int(min_val + (increment * (i + 1)))
+            
+            # Construir query particionada usando la configuración de tabla
+            partitioned_query = self._build_partitioned_query(partition_column, start_value, end_value)
+            
+            queries.append({
+                'query': partitioned_query,
+                'thread_id': i,
+                'metadata': {
+                    **metadata,
+                    'partition_index': i,
+                    'start_range': start_value,
+                    'end_range': end_value,
+                    'chunking_params': self._get_chunking_params_for_partition()
+                }
+            })
+        
+        return queries
+
+    def _build_partitioned_query(self, partition_column: str, start_value: int, end_value: int) -> str:
+        """Construye una query particionada individual"""
+        # Construir columnas con ID_COLUMN si existe
+        columns = self._parse_columns_for_partition()
+        
+        # Construir FROM con JOINs
+        from_clause = f"{self.table_config.source_schema}.{self.table_config.source_table}"
+        if hasattr(self.table_config, 'join_expr') and self.table_config.join_expr:
+            from_clause += f" {self.table_config.join_expr}"
+        
+        # Construir WHERE con partición y filtros
+        where_conditions = [f"{partition_column} >= {start_value} AND {partition_column} < {end_value}"]
+        
+        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp:
+            filter_exp = self.table_config.filter_exp.strip().replace('"', '')
+            where_conditions.append(f"({filter_exp})")
+        
+        query = f"SELECT {columns} FROM {from_clause} WHERE {' AND '.join(where_conditions)}"
+        
+        self.logger.info(f"🔍 Generated partitioned query: Range {start_value}-{end_value}")
+        return query
+
+    def _execute_partitioned_queries(self, partitioned_queries: List[Dict[str, Any]]) -> tuple:
+        """Ejecuta las queries particionadas en paralelo"""
+        self.logger.info(f"🔍 Executing {len(partitioned_queries)} partitioned queries in parallel")
+        
+        files_created = []
+        total_records = 0
+        
+        max_workers = min(self.extraction_config.max_threads, len(partitioned_queries))
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            future_to_query = {
+                executor.submit(self._execute_partition_query, i, query): query
+                for i, query in enumerate(partitioned_queries)
+            }
+            
+            for future in as_completed(future_to_query):
+                query = future_to_query[future]
+                try:
+                    file_path, record_count = future.result()
+                    if file_path:
+                        files_created.append(file_path)
+                    total_records += record_count
+                except Exception as e:
+                    raise ExtractionError(f"Failed to execute partitioned query: {e}")
+        
+        return files_created, total_records
+
+    def _execute_partition_query(self, thread_id: int, query_metadata: Dict[str, Any]) -> tuple:
+        """Ejecuta una query particionada individual"""
+        query = query_metadata['query']
+        metadata = query_metadata.get('metadata', {})
+        
+        # Usar la lógica existente de _execute_single_query pero sin el check de min_max
+        # (implementar la extracción normal con chunking si es necesario)
+        
+        chunk_size = metadata.get('chunk_size', self.extraction_config.chunk_size)
+        chunking_params = metadata.get('chunking_params', {})
+        order_by = chunking_params.get('order_by')
+        
+        files_created = []
+        total_records = 0
+        
+        for chunk_df in self.extractor.extract_data(query, chunk_size, order_by):
+            if chunk_df.empty:
+                continue
+                
+            file_path = self.loader.load_data(
+                chunk_df, 
+                thread_id, 
+                metadata.get('partition_index', 0)
+            )
+            
+            if file_path:
+                files_created.append(file_path)
+            total_records += len(chunk_df)
+        
+        return files_created, total_records
+
     def _handle_empty_result(self) -> tuple:
         """Handle case where no data was extracted"""
         files_created = []
