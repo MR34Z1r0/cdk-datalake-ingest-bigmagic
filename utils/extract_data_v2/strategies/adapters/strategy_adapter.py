@@ -58,10 +58,10 @@ class StrategyAdapter(StrategyInterface):
     def _build_query_from_params(self, params: ExtractionParams) -> str:
         """Construye la query SQL a partir de los parámetros de extracción"""
         
-        # SELECT clause
-        columns_str = params.get_columns_string()
+        # SELECT clause - usar las columnas tal como vienen procesadas
+        columns_str = ', '.join(params.columns) if params.columns != ['*'] else '*'
         
-        # FROM clause
+        # FROM clause con JOINs incluidos
         table_name = params.table_name
         
         # WHERE clause

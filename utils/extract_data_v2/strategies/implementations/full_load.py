@@ -91,26 +91,49 @@ class FullLoadStrategy(ExtractionStrategy):
         
         return base_estimate
     
+    def _parse_columns(self) -> List[str]:
+        """Parse column string into list, incluyendo ID_COLUMN"""
+        columns_list = []
+        
+        # Agregar ID_COLUMN si existe
+        if hasattr(self.table_config, 'id_column') and self.table_config.id_column and self.table_config.id_column.strip():
+            id_column_expr = f"{self.table_config.id_column.strip()} as id"
+            columns_list.append(id_column_expr)
+        
+        # Agregar las columnas regulares
+        if self.table_config.columns and self.table_config.columns.strip():
+            columns_list.append(self.table_config.columns.strip())
+        else:
+            columns_list.append('*')
+        
+        return [', '.join(columns_list)]
+
+    def _get_source_table_name(self) -> str:
+        """Obtiene el nombre de la tabla fuente CON JOIN_EXPR si existe"""
+        source_table = f"{self.table_config.source_schema}.{self.table_config.source_table}"
+        
+        # Agregar JOIN_EXPR si existe
+        if hasattr(self.table_config, 'join_expr') and self.table_config.join_expr and self.table_config.join_expr.strip():
+            source_table += f" {self.table_config.join_expr.strip()}"
+        
+        return source_table
+
     def _build_basic_filters(self) -> List[str]:
-        """Construye filtros básicos sin complejidad excesiva"""
+        """Construye filtros básicos incluyendo FILTER_EXP"""
         filters = []
         
-        # Filtro básico de la configuración
-        if hasattr(self.table_config, 'basic_filter') and self.table_config.basic_filter:
-            filters.append(self.table_config.basic_filter.strip())
+        # Agregar FILTER_EXP si existe
+        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp and self.table_config.filter_exp.strip():
+            filter_exp = self.table_config.filter_exp.strip().replace('"', '')
+            filters.append(f"({filter_exp})")
         
-        # Filtros de fecha si están configurados (simplificado)
-        if (hasattr(self.table_config, 'filter_column') and 
-            self.table_config.filter_column and 
-            hasattr(self.table_config, 'delay_incremental_ini') and
-            self.table_config.delay_incremental_ini):
+        # Agregar filtro de fechas si está configurado
+        if (hasattr(self.table_config, 'filter_column') and self.table_config.filter_column and
+            hasattr(self.table_config, 'partition_column') and self.table_config.partition_column):
             
-            try:
-                date_filter = self._build_simple_date_filter()
-                if date_filter:
-                    filters.append(date_filter)
-            except Exception as e:
-                logger.warning(f"Could not build date filter: {e}")
+            # Para full load, usar el rango completo configurado
+            date_filter = self.table_config.filter_column.replace('{0}', '733408').replace('{1}', '739524')
+            filters.append(f"({date_filter})")
         
         return filters
     
