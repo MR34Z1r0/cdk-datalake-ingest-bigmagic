@@ -50,8 +50,14 @@ class FullLoadStrategy(ExtractionStrategy):
 
     def _build_partitioned_params(self) -> ExtractionParams:
         """Construye parámetros especiales para carga particionada"""
+        
+        # Construir table_name con JOIN para particionado
+        table_name_with_joins = f"{self.table_config.source_schema}.{self.table_config.source_table}"
+        if hasattr(self.table_config, 'join_expr') and self.table_config.join_expr and self.table_config.join_expr.strip():
+            table_name_with_joins += f" {self.table_config.join_expr.strip()}"
+        
         params = ExtractionParams(
-            table_name=self._get_source_table_name(),
+            table_name=table_name_with_joins,  # ← Usar el nombre completo con JOINs
             columns=self._parse_columns(),
             metadata={
                 **self._build_basic_metadata(),
