@@ -47,15 +47,26 @@ class StrategyAdapter(StrategyInterface):
     def _generate_min_max_query(self) -> List[Dict[str, Any]]:
         """Genera query de min/max para particionado"""
         partition_column = self.extraction_params.metadata['partition_column']
-        table_name = self.extraction_params.table_name
         
-        # Construir query de min/max
-        min_max_query = f"SELECT MIN({partition_column}) as min_val, MAX({partition_column}) as max_val FROM {table_name}"
+        # Usar el table_name completo que ya incluye el schema y JOIN si está configurado
+        table_name_with_joins = self.extraction_params.table_name
         
-        # Agregar filtros si existen
-        where_clause = self.extraction_params.get_where_clause()
-        if where_clause:
-            min_max_query += f" WHERE {where_clause}"
+        # Construir query de min/max completa
+        min_max_query = f"SELECT MIN({partition_column}) as min_val, MAX({partition_column}) as max_val FROM {table_name_with_joins}"
+        
+        # Agregar condición WHERE para partition column != 0
+        where_conditions = [f"{partition_column} <> 0"]
+        
+        # Agregar otros filtros si existen
+        existing_where = self.extraction_params.get_where_clause()
+        if existing_where:
+            where_conditions.append(existing_where)
+        
+        # Construir clausula WHERE completa
+        if where_conditions:
+            min_max_query += f" WHERE {' AND '.join(where_conditions)}"
+        
+        logger.info(f"Generated Min/Max query: {min_max_query}")
         
         return [{
             'query': min_max_query,
