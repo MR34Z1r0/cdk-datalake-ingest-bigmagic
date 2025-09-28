@@ -1,7 +1,20 @@
 import csv
 import os
 import json
-from aws_cdk import Stack, aws_s3 as s3, aws_dynamodb as dynamodb, aws_sns as sns, aws_iam as iam, aws_lambda as _lambda, aws_stepfunctions as sfn, aws_stepfunctions_tasks as tasks, aws_secretsmanager as secretsmanager, CfnOutput, Duration, Tags
+from aws_cdk import (
+    Stack,
+    aws_s3 as s3,
+    aws_dynamodb as dynamodb,
+    aws_sns as sns,
+    aws_iam as iam,
+    aws_lambda as _lambda,
+    aws_stepfunctions as sfn,
+    aws_stepfunctions_tasks as tasks,
+    aws_secretsmanager as secretsmanager,
+    CfnOutput,
+    Duration,
+    Tags
+)
 import aws_cdk.aws_glue_alpha as glue
 import aws_cdk.aws_s3_deployment as s3_deployment
 from constructs import Construct

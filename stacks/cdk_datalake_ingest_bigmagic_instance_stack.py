@@ -190,7 +190,7 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
                         "process_id": process_id,
                         "instance": self.instance_name,
                         "scheduled_execution": True,
-                        "run_extract": True,
+                        "run_extract": False,
                     }),
                     integration_pattern=sfn.IntegrationPattern.RUN_JOB  # Synchronous execution
                 )
@@ -638,7 +638,7 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
                     "endpoint_name": endpoint_name,
                     "instance": self.instance_name,
                     "scheduled_execution": True,
-                    "run_extract": True,
+                    "run_extract": False,
                 }
                 
                 # Create scheduler configuration

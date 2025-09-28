@@ -22,6 +22,51 @@ if os.path.exists(env_file):
 else:
     print(f"Warning: Environment file {env_file} not found")
 
+def read_tables_csv_and_create_process_config(csv_file_path):
+    """
+    Read tables.csv and create process configuration and extract unique process IDs.
+    Returns: (process_config, process_ids_set)
+        - process_config: {process_id: [{"table": "table_name", "periods": periods}, ...]}
+        - process_ids_set: set of unique process_ids (integers)
+    """
+    process_config = {}
+    process_ids = set()
+    
+    with open(csv_file_path, newline='', encoding='latin1') as csvfile:
+        reader = csv.DictReader(csvfile, delimiter=';')
+        for row in reader:
+            if row['STATUS'].upper() == 'A' and row['PROCESS_ID']:
+                process_id = row['PROCESS_ID']
+                table_name = row['STAGE_TABLE_NAME']
+                periods = int(row['DELAY_INCREMENTAL_INI']) if row['DELAY_INCREMENTAL_INI'] else -2
+                
+                # Handle multi-process tables (e.g., "10,20,70")
+                if ',' in process_id:
+                    pids = [int(pid.strip()) for pid in process_id.split(',')]
+                    process_ids.update(pids)
+                    # For comma-separated process_ids, add to each individual process
+                    for pid in pids:
+                        pid_str = str(pid)
+                        if pid_str not in process_config:
+                            process_config[pid_str] = []
+                        process_config[pid_str].append({
+                            "table": table_name,
+                            "periods": periods
+                        })
+                else:
+                    process_ids.add(int(process_id))
+                    # Single process_id
+                    if process_id not in process_config:
+                        process_config[process_id] = []
+                    process_config[process_id].append({
+                        "table": table_name,
+                        "periods": periods
+                    })
+    
+    # print(f"process_config: {process_config}")
+    # print(f"Found process IDs: {sorted(process_ids)}")
+    return process_config, process_ids
+
 app = cdk.App()
 
 CONFIG = app.node.try_get_context("project_config")
@@ -29,6 +74,16 @@ CONFIG["account_id"] = os.getenv("ACCOUNT_ID", None)
 CONFIG["region_name"] = os.getenv("REGION_NAME", None)
 CONFIG["environment"] = os.getenv("ENVIRONMENT", None)
 CONFIG["separator"] = os.getenv("SEPARATOR", "-")
+
+#CONFIG["GLUE_CONN_REDSHIFT_JDBC"] = os.getenv(f"{os.getenv('ENVIRONMENT', None).upper()}_GLUE_CONN_REDSHIFT_JDBC")
+#CONFIG["GLUE_CONN_REDSHIFT_USER"] = os.getenv(f"{os.getenv('ENVIRONMENT', None).upper()}_GLUE_CONN_REDSHIFT_USER")
+#CONFIG["GLUE_CONN_REDSHIFT_PASS"] = os.getenv(f"{os.getenv('ENVIRONMENT', None).upper()}_GLUE_CONN_REDSHIFT_PASS")
+#CONFIG["GLUE_CONN_REDSHIFT_SG"] = os.getenv(f"{os.getenv('ENVIRONMENT', None).upper()}_GLUE_CONN_REDSHIFT_SG")
+#CONFIG["GLUE_CONN_REDSHIFT_SUBNET"] = os.getenv(f"{os.getenv('ENVIRONMENT', None).upper()}_GLUE_CONN_REDSHIFT_SUBNET")
+#CONFIG["GLUE_CONN_REDSHIFT_AVAILABILITY_ZONE"] = os.getenv(f"{os.getenv('ENVIRONMENT', None).upper()}_GLUE_CONN_REDSHIFT_AVAILABILITY_ZONE")
+#
+#if CONFIG["GLUE_CONN_REDSHIFT_JDBC"] is None or CONFIG["GLUE_CONN_REDSHIFT_USER"] is None or CONFIG["GLUE_CONN_REDSHIFT_PASS"] is None or CONFIG["GLUE_CONN_REDSHIFT_SG"] is None or CONFIG["GLUE_CONN_REDSHIFT_SUBNET"] is None or CONFIG["GLUE_CONN_REDSHIFT_AVAILABILITY_ZONE"] is None:
+#    raise ValueError("One or more GLUE_CONN_REDSHIFT parameters are not set, check app.py")
 project_config = ProjectConfig.from_dict(CONFIG)
 project_paths = Paths(project_config.app_config)
 
@@ -38,20 +93,25 @@ print(f"  Account: {project_config.account_id}")
 print(f"  Region: {project_config.region_name}")
 print(f"  Environment: {project_config.environment.value}")
 
+csv_file_path = f'{project_paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/tables.csv'
+process_config, all_process_ids = read_tables_csv_and_create_process_config(csv_file_path)
+# print(f"Process configuration loaded from CSV:")
+# for process_id, tables in process_config.items():
+#     print(f"  Process {process_id}: {len(tables)} tables")
 # Deploy the main BigMagic stack
 base_stack = CdkDatalakeIngestBigmagicStack(
     app,
     "CdkDatalakeIngestBigmagicStack",
     project_config,
+    process_config=process_config,
     env=cdk.Environment(
         account=project_config.account_id,
         region=project_config.region_name
     )
 )
 
-# Parse tables.csv to understand process_id distribution and shared tables
+# Parse tables.csv to understand shared tables
 tables_data = []
-all_process_ids = set()
 shared_tables = {}
 shared_job_registry = {}
 shared_lambda_registry = {}
@@ -65,9 +125,6 @@ with open(f'{project_paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/tables.csv', newline='
             if ',' in row['PROCESS_ID']:
                 process_ids = [int(pid.strip()) for pid in row['PROCESS_ID'].split(',')]
                 shared_tables[row['STAGE_TABLE_NAME']] = process_ids
-                all_process_ids.update(process_ids)
-            else:
-                all_process_ids.add(int(row['PROCESS_ID']))
 
 # Get database names and instances from credentials.csv for current environment
 endpoint_names = []
@@ -145,7 +202,17 @@ for process_id in sorted(all_process_ids):  # Sort to ensure consistent order
             'RoleCrawlerArn': base_stack.role_crawler.role_arn,
             'RoleStepFunctionArn': base_stack.role_step_function.role_arn,
             'BaseStepFunctionArn': base_stack.base_step_function.state_machine_arn,
+            'LegacyLambdaFunctionArn': base_stack.legacy_lambda_function.function_arn,
+            'LegacyLambdaFunctionName': base_stack.legacy_lambda_function.function_name,
+            'DomainLambdaFunctionArn': base_stack.domain_lambda_function.function_arn,
+            'DomainLambdaFunctionName': base_stack.domain_lambda_function.function_name,
         }
+        
+        # Add load job names if they exist
+        if hasattr(base_stack, 'load_to_redshift_job'):
+            base_stack_outputs['LoadToRedshiftJobName'] = base_stack.load_to_redshift_job.job_name
+        if hasattr(base_stack, 'load_to_odscorp_job'):
+            base_stack_outputs['LoadToODSCorpJobName'] = base_stack.load_to_odscorp_job.job_name
         
         # Add crawler job names for each database
         if hasattr(base_stack, 'crawler_jobs'):
@@ -201,8 +268,19 @@ for process_id in sorted(all_process_ids):  # Sort to ensure consistent order
 for instance, endpoint_names in instance_groups.items():
     instance_stack_name = f"CdkDatalakeIngestBigmagicInstanceStack-{instance}"
     
-    # Simplified approach: Instance Step Function takes process_id as input
-    # No need to collect all group stack references since process_id is dynamic
+    # Collect group stack references for this instance
+    group_stack_references = {}
+    for endpoint_name in endpoint_names:
+        for process_id in sorted(all_process_ids):
+            dependency_stack_name = sanitize_stack_name(process_id, endpoint_name)
+            if dependency_stack_name in deployed_stacks:
+                group_key = f"{endpoint_name}_{process_id}"
+                group_stack_references[group_key] = {
+                    'stack': deployed_stacks[dependency_stack_name],
+                    'step_function': deployed_stacks[dependency_stack_name].step_function,
+                    'process_id': process_id,
+                    'endpoint_name': endpoint_name
+                }
     
     # Create the instance-level Step Function stack
     instance_stack = CdkDatalakeIngestBigmagicInstanceStack(
@@ -212,7 +290,7 @@ for instance, endpoint_names in instance_groups.items():
         instance,
         endpoint_names,
         base_stack_outputs,
-        {},  # Empty group stack references since we use dynamic process_id
+        group_stack_references,  # Empty group stack references since we use dynamic process_id
         env=cdk.Environment(
             account=project_config.account_id,
             region=project_config.region_name
