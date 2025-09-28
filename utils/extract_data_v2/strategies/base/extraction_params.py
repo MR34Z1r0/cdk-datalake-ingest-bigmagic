@@ -48,6 +48,14 @@ class ExtractionParams:
     
     def get_columns_string(self) -> str:
         """Retorna las columnas como string para SQL"""
-        if not self.columns or self.columns == ['*']:
+        if not self.columns:
             return '*'
-        return ', '.join(self.columns)
+        
+        # Si ya es una lista, unir con comas
+        if isinstance(self.columns, list):
+            if self.columns == ['*']:
+                return '*'
+            return ', '.join(self.columns)
+        
+        # Si es string, retornar tal como está
+        return self.columns

@@ -54,17 +54,65 @@ class ExtractionStrategy(ABC):
     # Métodos helper comunes
     def _parse_columns(self) -> List[str]:
         """Parse column string into list"""
-        if not self.table_config.columns or self.table_config.columns.strip() == '':
-            return ['*']
-        
         columns = []
-        for col in self.table_config.columns.split(','):
-            clean_col = col.strip()
-            if clean_col:
-                columns.append(clean_col)
+        
+        # 1. Procesar ID_COLUMN primero si existe
+        id_column_processed = self._process_id_column()
+        if id_column_processed:
+            columns.append(id_column_processed)
+        
+        # 2. Procesar las columnas regulares
+        if not self.table_config.columns or self.table_config.columns.strip() == '':
+            if not id_column_processed:  # Solo agregar '*' si no hay ID_COLUMN
+                columns.append('*')
+        else:
+            # Limpiar y separar columnas
+            for col in self.table_config.columns.split(','):
+                clean_col = col.strip()
+                if clean_col:
+                    columns.append(clean_col)
         
         return columns if columns else ['*']
     
+    def _process_id_column(self) -> str:
+        """Process ID_COLUMN with validation logic"""
+        # Verificar si ID_COLUMN tiene valor
+        if not hasattr(self.table_config, 'id_column') or not self.table_config.id_column:
+            return None
+        
+        id_column = self.table_config.id_column.strip()
+        if not id_column:
+            return None
+        
+        # Verificar si 'id' ya existe en COLUMNS
+        if self._check_id_exists_in_columns():
+            return None
+        
+        # Retornar ID_COLUMN con alias 'id'
+        return f"{id_column} as id"
+
+    def _check_id_exists_in_columns(self) -> bool:
+        """Check if 'id' keyword exists in columns string"""
+        if not self.table_config.columns:
+            return False
+        
+        import re
+        
+        # Normalizar el string de columnas
+        columns_str = self.table_config.columns.lower().strip()
+        
+        # Patrones para detectar 'id' como columna independiente
+        id_patterns = [
+            r'^\s*id\s*$',           # Solo 'id'
+        ]
+        
+        # Verificar cada patrón
+        for pattern in id_patterns:
+            if re.search(pattern, columns_str):
+                return True
+        
+        return False
+
     def _get_source_table_name(self) -> str:
         """Obtiene el nombre de la tabla fuente limpio"""
         source_table = self.table_config.source_table or self.extraction_config.table_name
