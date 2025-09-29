@@ -707,7 +707,7 @@ class TransformationEngine:
             except Exception as e:
                 error_msg = f"Error en columna {column_meta.name}: {str(e)}"
                 errors.append(error_msg)
-                logger.error(error_msg)
+                self.logger.error(error_msg)
                 # Agregar columna con valor null apropiado en caso de error
                 spark_type = self._get_spark_type(column_meta.data_type)
                 transformation_exprs.append(lit(None).cast(spark_type).alias(column_meta.name))
