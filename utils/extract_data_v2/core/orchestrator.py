@@ -33,6 +33,10 @@ class DataExtractionOrchestrator:
         self.monitor = monitor  # Recibir monitor desde main
         self.table_config: Optional[TableConfig] = None
         self.database_config: Optional[DatabaseConfig] = None
+    
+        # Inicializar logger - AGREGAR ESTA LÍNEA
+        from aje_libs.common.datalake_logger import DataLakeLogger
+        self.logger = DataLakeLogger.get_logger(__name__)
         
         # Components
         self.extractor: Optional[ExtractorInterface] = None
