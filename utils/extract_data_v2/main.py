@@ -25,36 +25,22 @@ from config.settings import settings
 import argparse
 
 def parse_arguments():
-    """Parse command line arguments with .env fallback"""
+    """Parse command line arguments - only table name required"""
     parser = argparse.ArgumentParser(description='Data Extraction Tool')
     
-    # Cargar valores del .env como defaults
-    from config.settings import settings
-    base_config = settings.get_all()
-    
-    # Hacer los argumentos opcionales y usar valores del .env como default
-    parser.add_argument('--table-name', 
-                       default=base_config.get('TABLE_NAME'), 
+    # ÚNICO argumento requerido
+    parser.add_argument('--table-name', '-t',
+                       required=True,
                        help='Table name to extract')
-    parser.add_argument('--team', 
-                       default=base_config.get('TEAM'), 
-                       help='Team name')
-    parser.add_argument('--data-source', 
-                       default=base_config.get('DATA_SOURCE'), 
-                       help='Data source name')
-    parser.add_argument('--environment', 
-                       default=base_config.get('ENVIRONMENT', 'DEV'), 
-                       help='Environment (DEV, PROD)')
-    parser.add_argument('--force-full-load', action='store_true', help='Force full load')
-    parser.add_argument('--max-threads', type=int, help='Maximum threads')
-    parser.add_argument('--output-format', 
-                       choices=['parquet', 'csv', 'json'], 
-                       default='parquet')
-    parser.add_argument('--chunk-size', type=int, help='Chunk size')
+    
+    # Argumentos opcionales para debugging/override (raramente usados)
     parser.add_argument('--log-level', 
                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], 
-                       default='INFO')
-    parser.add_argument('--dry-run', action='store_true', help='Validate only')
+                       default='INFO',
+                       help='Log level (default: INFO)')
+    parser.add_argument('--dry-run', 
+                       action='store_true', 
+                       help='Validate configuration only, do not extract')
     
     return parser.parse_args()
 
@@ -91,21 +77,43 @@ def setup_monitoring(extraction_config: ExtractionConfig) -> MonitorInterface:
     )
 
 def create_extraction_config(args) -> ExtractionConfig:
-    """Create extraction configuration"""
+    """
+    Create extraction configuration from .env
+    Only table_name comes from CLI args, everything else from .env
+    """
     base_config = settings.get_all()
     
+    # Validar que existan las variables críticas del .env
+    required_env_vars = ['PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'ENDPOINT_NAME', 
+                         'ENVIRONMENT', 'MAX_THREADS', 'CHUNK_SIZE']
+    missing_vars = [var for var in required_env_vars if not base_config.get(var)]
+    
+    if missing_vars:
+        raise ConfigurationError(
+            f"Missing required environment variables in .env: {', '.join(missing_vars)}"
+        )
+    
     return ExtractionConfig(
+        # Campos obligatorios desde .env
+        project_name=base_config.get('PROJECT_NAME'),
+        team=base_config.get('TEAM'),
+        data_source=base_config.get('DATA_SOURCE'),
+        endpoint_name=base_config.get('ENDPOINT_NAME'),
+        environment=base_config.get('ENVIRONMENT'),
+        
+        # ÚNICO campo desde CLI
         table_name=args.table_name,
-        team=args.team,
-        data_source=args.data_source,
-        environment=args.environment,
-        force_full_load=args.force_full_load or base_config.get('force_full_load', False),
-        max_threads=args.max_threads or base_config.get('max_threads', 4),
-        output_format=args.output_format,
-        chunk_size=args.chunk_size or base_config.get('chunk_size', 10000),
-        # ... resto de configuración
-        dynamo_logs_table=base_config.get('dynamo_logs_table'),
-        topic_arn=base_config.get('sns_topic_arn'),
+        
+        # Resto desde .env
+        max_threads=base_config.get('MAX_THREADS'),
+        chunk_size=base_config.get('CHUNK_SIZE'),
+        force_full_load=base_config.get('FORCE_FULL_LOAD', False),
+        output_format=base_config.get('OUTPUT_FORMAT', 'parquet'),
+        
+        # Campos opcionales
+        s3_raw_bucket=base_config.get('S3_RAW_BUCKET'),
+        dynamo_logs_table=base_config.get('DYNAMO_LOGS_TABLE'),
+        topic_arn=base_config.get('TOPIC_ARN'),
     )
 
 def validate_environment():

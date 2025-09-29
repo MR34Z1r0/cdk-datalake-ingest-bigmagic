@@ -10,7 +10,7 @@ cd /c C:\WORKSPACE\CDK\cdk-datalake-ingest-bigmagic\utils\extract_data_v2
 REM Iterar sobre las tablas del archivo tablas.txt
 for /f %%T in (tables.txt) do (
     echo Procesando tabla %%T...
-    python main.py -t %%T
+    python main.py -table-name %%T
 )
 
 pause
