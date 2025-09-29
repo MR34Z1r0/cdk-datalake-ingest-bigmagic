@@ -16,10 +16,15 @@ class DynamoDBMonitor(MonitorInterface):
         self.project_name = project_name
         
         # Extraer configuración
-        team = kwargs.get('team', 'default')
-        data_source = kwargs.get('data_source', 'unknown')
+        team = kwargs.get('team')
+        data_source = kwargs.get('data_source')
+        endpoint_name = kwargs.get('endpoint_name', '')
         environment = kwargs.get('environment', 'DEV')
         sns_topic_arn = kwargs.get('sns_topic_arn')
+        
+        # Validar que se pasaron los valores requeridos
+        if not team or not data_source:
+            raise ValueError(f"DynamoDBMonitor requires 'team' and 'data_source'. Got team={team}, data_source={data_source}")
         
         # ÚNICA INSTANCIA de DynamoDBLogger - aquí se centraliza TODO
         self.dynamo_logger = DynamoDBLogger(
@@ -27,6 +32,7 @@ class DynamoDBMonitor(MonitorInterface):
             sns_topic_arn=sns_topic_arn,
             team=team,
             data_source=data_source,
+            endpoint_name=endpoint_name,
             flow_name='extract_data',
             environment=environment,
             logger_name=f"{project_name}-monitor"

@@ -56,7 +56,7 @@ def setup_logging(log_level: str, table_name: str, team: str, data_source: str):
     DataLakeLogger.configure_global(
         log_level=log_level_map.get(log_level, logging.INFO),
         service_name="extract_data",
-        correlation_id=f"{team}-{data_source}-{table_name}-extract_data",
+        correlation_id=f"{team}-{data_source}-extract_data-{table_name}",
         owner=team,
         auto_detect_env=True,
         force_local_mode=False
@@ -73,6 +73,7 @@ def setup_monitoring(extraction_config: ExtractionConfig) -> MonitorInterface:
         sns_topic_arn=extraction_config.topic_arn,
         team=extraction_config.team,
         data_source=extraction_config.data_source,
+        endpoint_name=extraction_config.endpoint_name,
         environment=extraction_config.environment
     )
 

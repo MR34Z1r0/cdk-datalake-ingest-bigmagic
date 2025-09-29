@@ -20,6 +20,7 @@ class DynamoDBLogger:
         sns_topic_arn: Optional[str] = None,
         team: str = "",
         data_source: str = "",
+        endpoint_name: str = "", 
         flow_name: str = "",
         environment: str = "",
         region: str = "us-east-1",
@@ -42,6 +43,7 @@ class DynamoDBLogger:
         self.sns_topic_arn = sns_topic_arn
         self.team = team
         self.data_source = data_source
+        self.endpoint_name = endpoint_name
         self.flow_name = flow_name
         self.environment = environment
         
@@ -50,9 +52,8 @@ class DynamoDBLogger:
         
         # Obtener logger usando DataLakeLogger
         self.logger = DataLakeLogger.get_logger(
-            name=logger_name or f"{team}-{data_source}-dynamodb-logger",
-            service_name=f"{team}-{flow_name}",
-            correlation_id=f"{team}-{data_source}-{flow_name}"
+            name=logger_name or f"{team}-{flow_name}",
+            service_name=f"{team}-{flow_name}"
         )
         
         # Clientes AWS
@@ -97,7 +98,7 @@ class DynamoDBLogger:
             # Generar timestamp y process_id únicos
             now_lima = datetime.now(pytz.utc).astimezone(self.tz_lima)
             timestamp = now_lima.strftime("%Y%m%d_%H%M%S_%f")
-            process_id = f"{self.team}-{self.data_source}-{self.flow_name}-{table_name}-{timestamp}"
+            process_id = f"{self.team}-{self.data_source}-{self.endpoint_name}-{table_name}"
             
             # Preparar contexto con límites de tamaño
             log_context = self._prepare_context(context or {})
