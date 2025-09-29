@@ -26,19 +26,401 @@ from pyspark.sql import Window
 from pyspark.sql.types import *
 from pyspark.sql.session import SparkSession
 # Agregar estos imports después de los imports existentes
-from aje_libs.common.datalake_logger import DataLakeLogger
-from aje_libs.common.dynamodb_logger import DynamoDBLogger
-
-
-# Configuración de logging
-logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
-logger = logging.getLogger("LightTransform")
-logger.setLevel(os.environ.get("LOGGING", logging.INFO))
-
+ 
 # Constantes
 TZ_LIMA = pytz.timezone('America/Lima')
 BASE_DATE_MAGIC = "1900-01-01"
 MAGIC_OFFSET = 693596
+
+class DataLakeLogger:
+    """
+    Clase centralizada para logging en DataLake que maneja automáticamente:
+    - AWS CloudWatch (en entorno Glue)
+    - Console output
+    - Detección automática del entorno (AWS vs Local)
+    """
+    
+    # Configuración global por defecto
+    _global_config = {
+        'log_level': logging.INFO,
+        'service_name': 'light_transform',
+        'correlation_id': None,
+        'owner': None,
+        'auto_detect_env': True,
+        'force_local_mode': False
+    }
+    
+    # Cache de loggers para evitar recrear
+    _logger_cache = {}
+    
+    @classmethod
+    def configure_global(cls, 
+                        log_level: Optional[int] = None,
+                        service_name: Optional[str] = None,
+                        correlation_id: Optional[str] = None,
+                        owner: Optional[str] = None,
+                        auto_detect_env: bool = True,
+                        force_local_mode: bool = False):
+        """Configura parámetros globales para todos los loggers"""
+        if log_level is not None:
+            cls._global_config['log_level'] = log_level
+        if service_name is not None:
+            cls._global_config['service_name'] = service_name
+        if correlation_id is not None:
+            cls._global_config['correlation_id'] = correlation_id
+        if owner is not None:
+            cls._global_config['owner'] = owner
+        
+        cls._global_config['auto_detect_env'] = auto_detect_env
+        cls._global_config['force_local_mode'] = force_local_mode
+        
+        # Limpiar cache cuando cambia configuración
+        cls._logger_cache.clear()
+    
+    @classmethod
+    def get_logger(cls, 
+                   name: Optional[str] = None,
+                   service_name: Optional[str] = None,
+                   correlation_id: Optional[str] = None,
+                   log_level: Optional[int] = None) -> logging.Logger:
+        """Obtiene un logger configurado para el entorno actual"""
+        
+        # Usar configuración global como base
+        effective_service = service_name or cls._global_config['service_name']
+        effective_correlation_id = correlation_id or cls._global_config['correlation_id']
+        effective_log_level = log_level or cls._global_config['log_level']
+        
+        # Crear cache key
+        cache_key = f"{name}_{effective_service}_{effective_correlation_id}_{effective_log_level}"
+        
+        # Devolver del cache si existe
+        if cache_key in cls._logger_cache:
+            return cls._logger_cache[cache_key]
+        
+        # Crear logger estándar de Python
+        logger_name = name or effective_service or 'light_transform'
+        logger = logging.getLogger(logger_name)
+        logger.setLevel(effective_log_level)
+        
+        # Limpiar handlers existentes para evitar duplicados
+        if logger.handlers:
+            logger.handlers.clear()
+        
+        # Crear formatter
+        formatter = logging.Formatter(
+            '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+            datefmt='%Y-%m-%d %H:%M:%S'
+        )
+        
+        # Handler para consola (CloudWatch en Glue)
+        console_handler = logging.StreamHandler()
+        console_handler.setLevel(effective_log_level)
+        console_handler.setFormatter(formatter)
+        logger.addHandler(console_handler)
+        
+        # Evitar propagación para prevenir logs duplicados
+        logger.propagate = False
+        
+        # Guardar en cache
+        cls._logger_cache[cache_key] = logger
+        
+        return logger
+
+class DynamoDBLogger:
+    """
+    Logger para DynamoDB que registra logs de proceso y envía notificaciones SNS en caso de errores
+    """
+    
+    def __init__(
+        self,
+        table_name: str,
+        sns_topic_arn: Optional[str] = None,
+        team: str = "",
+        data_source: str = "",
+        flow_name: str = "",
+        environment: str = "",
+        region: str = "us-east-1",
+        logger_name: Optional[str] = None
+    ):
+        """Inicializa el DynamoDB Logger"""
+        self.table_name = table_name
+        self.sns_topic_arn = sns_topic_arn
+        self.team = team
+        self.data_source = data_source
+        self.flow_name = flow_name
+        self.environment = environment
+        
+        # Configurar timezone Lima
+        self.tz_lima = pytz.timezone('America/Lima')
+        
+        # Obtener logger usando DataLakeLogger
+        self.logger = DataLakeLogger.get_logger(
+            name=logger_name or f"{team}-{data_source}-dynamodb-logger",
+            service_name=f"{team}-{flow_name}",
+            correlation_id=f"{team}-{data_source}-{flow_name}"
+        )
+        
+        # Clientes AWS
+        try:
+            self.dynamodb = boto3.resource('dynamodb', region_name=region)
+            self.dynamodb_table = self.dynamodb.Table(table_name) if table_name else None
+            self.sns_client = boto3.client('sns', region_name=region) if sns_topic_arn else None
+            
+            self.logger.info(f"DynamoDBLogger inicializado - Tabla: {table_name}, SNS: {bool(sns_topic_arn)}")
+            
+        except Exception as e:
+            self.logger.warning(f"Error inicializando clientes AWS: {e}")
+            self.dynamodb_table = None
+            self.sns_client = None
+    
+    def log_process_status(
+        self,
+        status: str,  # RUNNING, SUCCESS, FAILED, WARNING
+        message: str,
+        table_name: str = "",
+        job_name: str = "",
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Registra el estatus de un proceso en DynamoDB"""
+        if not self.dynamodb_table:
+            self.logger.warning(f"DynamoDB no configurado, log no registrado: {status} - {message}")
+            return ""
+        
+        try:
+            # Generar timestamp y process_id únicos
+            now_lima = dt.datetime.now(pytz.utc).astimezone(self.tz_lima)
+            timestamp = now_lima.strftime("%Y%m%d_%H%M%S_%f")
+            process_id = f"{self.team}-{self.data_source}-{self.flow_name}-{table_name}-{timestamp}"
+            
+            # Preparar contexto con límites de tamaño
+            log_context = self._prepare_context(context or {})
+            
+            # Truncar mensaje si es muy largo
+            truncated_message = message[:2000] + "...[TRUNCATED]" if len(message) > 2000 else message
+            
+            # Crear registro compatible con estructura existente
+            record = {
+                "PROCESS_ID": process_id,
+                "DATE_SYSTEM": timestamp,
+                "RESOURCE_NAME": job_name or "unknown_job",
+                "RESOURCE_TYPE": "python_shell_glue_job",
+                "STATUS": status.upper(),
+                "MESSAGE": truncated_message,
+                "PROCESS_TYPE": self._get_process_type(status),
+                "CONTEXT": log_context,
+                "TEAM": self.team,
+                "DATASOURCE": self.data_source,
+                "ENDPOINT_NAME": context.get("endpoint_name", "") if context else "",
+                "TABLE_NAME": table_name,
+                "ENVIRONMENT": self.environment,
+                "log_created_at": now_lima.strftime("%Y-%m-%d %H:%M:%S")
+            }
+            
+            # Insertar en DynamoDB
+            self.dynamodb_table.put_item(Item=record)
+            self.logger.info(f"Log registrado en DynamoDB", {
+                "process_id": process_id, 
+                "status": status,
+                "table": table_name
+            })
+            
+            # Enviar notificación SNS si es error
+            if status.upper() == "FAILED":
+                self._send_failure_notification(record)
+            
+            return process_id
+            
+        except Exception as e:
+            self.logger.error(f"Error registrando log en DynamoDB: {e}")
+            
+            # Si falló el registro pero era un error, intentar enviar SNS de emergencia
+            if status.upper() == "FAILED":
+                self._send_emergency_notification(message, table_name, str(e))
+            
+            return ""
+    
+    def log_start(
+        self, 
+        table_name: str, 
+        job_name: str = "",
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Registra inicio de proceso"""
+        message = f"Iniciando procesamiento de tabla {table_name}"
+        self.logger.info(message, {"table": table_name, "job": job_name})
+        return self.log_process_status("RUNNING", message, table_name, job_name, context)
+    
+    def log_success(
+        self, 
+        table_name: str, 
+        job_name: str = "",
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Registra éxito de proceso"""
+        message = f"Procesamiento exitoso de tabla {table_name}"
+        self.logger.info(message, {"table": table_name, "job": job_name})
+        return self.log_process_status("SUCCESS", message, table_name, job_name, context)
+    
+    def log_failure(
+        self, 
+        table_name: str, 
+        error_message: str,
+        job_name: str = "",
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Registra fallo de proceso y envía notificación"""
+        message = f"Error procesando tabla {table_name}: {error_message}"
+        self.logger.error(message, {"table": table_name, "job": job_name, "error": error_message})
+        return self.log_process_status("FAILED", message, table_name, job_name, context)
+    
+    def log_warning(
+        self, 
+        table_name: str, 
+        warning_message: str,
+        job_name: str = "",
+        context: Optional[Dict[str, Any]] = None
+    ) -> str:
+        """Registra advertencia de proceso"""
+        message = f"Advertencia procesando tabla {table_name}: {warning_message}"
+        self.logger.warning(message, {"table": table_name, "job": job_name, "warning": warning_message})
+        return self.log_process_status("WARNING", message, table_name, job_name, context)
+    
+    def _prepare_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Prepara el contexto limitando su tamaño para DynamoDB"""
+        MAX_CONTEXT_SIZE = 300 * 1024  # 300KB
+        
+        def truncate_data(data, max_length=1000):
+            """Trunca estructuras de datos"""
+            if isinstance(data, str):
+                return data[:max_length] + "...[TRUNCATED]" if len(data) > max_length else data
+            elif isinstance(data, dict):
+                truncated = {}
+                for k, v in list(data.items())[:10]:
+                    truncated[k] = truncate_data(v, 500)
+                if len(data) > 10:
+                    truncated["_truncated_items"] = f"...and {len(data) - 10} more items"
+                return truncated
+            elif isinstance(data, list):
+                truncated = [truncate_data(item, 200) for item in data[:5]]
+                if len(data) > 5:
+                    truncated.append(f"...and {len(data) - 5} more items")
+                return truncated
+            else:
+                return str(data)[:500] if data else data
+        
+        prepared_context = truncate_data(context)
+        
+        # Verificar tamaño total
+        context_json = json.dumps(prepared_context, default=str)
+        if len(context_json.encode("utf-8")) > MAX_CONTEXT_SIZE:
+            return {
+                "size_limit_applied": "Context truncated due to DynamoDB size limits",
+                "original_keys": list(context.keys())[:10],
+                "truncated_at": dt.datetime.now(self.tz_lima).strftime("%Y-%m-%d %H:%M:%S")
+            }
+        
+        return prepared_context
+    
+    def _get_process_type(self, status: str) -> str:
+        """Determina el tipo de proceso basado en el status"""
+        if status.upper() in ["RUNNING"]:
+            return "incremental"
+        elif status.upper() in ["SUCCESS"]:
+            return "completed"
+        elif status.upper() in ["WARNING"]:
+            return "incremental_with_warnings"
+        else:
+            return "error_handling"
+    
+    def _send_failure_notification(self, record: Dict[str, Any]):
+        """Envía notificación SNS por error"""
+        if not self.sns_client or not self.sns_topic_arn:
+            self.logger.warning("SNS no configurado, no se puede enviar notificación de error")
+            return
+        
+        try:
+            # Preparar mensaje truncado para SNS
+            message_text = str(record.get("MESSAGE", ""))
+            truncated_message = message_text[:800] + "..." if len(message_text) > 800 else message_text
+            
+            notification_message = f"""
+🚨 PROCESO FALLIDO EN LIGHT TRANSFORM
+
+📊 DETALLES:
+- Estado: {record.get('STATUS')}
+- Tabla: {record.get("TABLE_NAME")}
+- Equipo: {record.get("TEAM")}
+- Flujo: {self.flow_name}
+- Ambiente: {record.get("ENVIRONMENT")}
+- Timestamp: {record.get("log_created_at")}
+
+❌ ERROR:
+{truncated_message}
+
+🔍 IDENTIFICADORES:
+- Process ID: {record.get('PROCESS_ID')}
+- Resource: {record.get('RESOURCE_NAME')}
+
+📋 ACCIONES:
+1. Consulta logs completos en DynamoDB usando el PROCESS_ID
+2. Revisa CloudWatch logs para más detalles
+3. Verifica la configuración de la tabla y transformaciones
+
+⚠️ Este mensaje se envía automáticamente. El job se marca como SUCCESS para evitar dobles notificaciones.
+            """
+            
+            # Enviar notificación
+            self.sns_client.publish(
+                TopicArn=self.sns_topic_arn,
+                Subject=f"🚨 [ERROR] LIGHT TRANSFORM - {record.get('TABLE_NAME')} - {record.get('TEAM')}",
+                Message=notification_message
+            )
+            
+            self.logger.info("Notificación SNS enviada exitosamente")
+            
+        except Exception as e:
+            self.logger.error(f"Error enviando notificación SNS: {e}")
+    
+    def _send_emergency_notification(self, message: str, table_name: str, dynamodb_error: str):
+        """Envía notificación de emergencia cuando falla DynamoDB"""
+        if not self.sns_client or not self.sns_topic_arn:
+            return
+        
+        try:
+            emergency_message = f"""
+🆘 NOTIFICACIÓN DE EMERGENCIA - FALLO EN SISTEMA DE LOGGING
+
+⚠️ SITUACIÓN CRÍTICA:
+El proceso falló Y el sistema de logging a DynamoDB también falló.
+
+📊 DETALLES DEL ERROR ORIGINAL:
+- Tabla: {table_name}
+- Equipo: {self.team}
+- Flujo: {self.flow_name}
+- Error: {message[:500]}
+
+🔧 ERROR DE DYNAMODB:
+{dynamodb_error[:300]}
+
+🚨 ACCIÓN REQUERIDA:
+1. Revisar logs de CloudWatch INMEDIATAMENTE
+2. Verificar conectividad a DynamoDB
+3. Revisar permisos IAM
+4. Investigar el error original del proceso
+
+⚠️ Sin logging en DynamoDB, la trazabilidad está comprometida.
+            """
+            
+            self.sns_client.publish(
+                TopicArn=self.sns_topic_arn,
+                Subject=f"🆘 [EMERGENCIA] Sistema de Logging Fallido - {table_name}",
+                Message=emergency_message
+            )
+            
+            self.logger.critical("Notificación de emergencia enviada")
+            
+        except Exception as e:
+            self.logger.critical(f"Error crítico: No se pudo enviar notificación de emergencia: {e}")
 
 @dataclass
 class ColumnMetadata:
