@@ -28,9 +28,9 @@ from aje_libs.common.logger import custom_logger
 class DataExtractionOrchestrator:
     """Main orchestrator for the data extraction process"""
     
-    def __init__(self, extraction_config: ExtractionConfig):
-        self.logger = custom_logger(__name__)
+    def __init__(self, extraction_config: ExtractionConfig, monitor: MonitorInterface = None):
         self.extraction_config = extraction_config
+        self.monitor = monitor  # Recibir monitor desde main
         self.table_config: Optional[TableConfig] = None
         self.database_config: Optional[DatabaseConfig] = None
         
