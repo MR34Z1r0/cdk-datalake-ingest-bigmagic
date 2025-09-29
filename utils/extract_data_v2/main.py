@@ -56,7 +56,7 @@ def setup_logging(log_level: str, table_name: str, team: str, data_source: str):
     DataLakeLogger.configure_global(
         log_level=log_level_map.get(log_level, logging.INFO),
         service_name="extract_data",
-        correlation_id=f"extract-{table_name}-{int(time.time())}",
+        correlation_id=f"{team}-{data_source}-{table_name}-extract_data",
         owner=team,
         auto_detect_env=True,
         force_local_mode=False
