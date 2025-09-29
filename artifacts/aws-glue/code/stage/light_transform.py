@@ -32,6 +32,103 @@ TZ_LIMA = pytz.timezone('America/Lima')
 BASE_DATE_MAGIC = "1900-01-01"
 MAGIC_OFFSET = 693596
 
+class Monitor:
+    """
+    Monitor para Light Transform siguiendo el patrón de extract_data_v2
+    Centraliza todas las llamadas de logging a DynamoDB para evitar duplicados
+    """
+    
+    def __init__(self, dynamo_logger):
+        """
+        Inicializa el monitor con un DynamoDBLogger
+        
+        Args:
+            dynamo_logger: Instancia de DynamoDBLogger para registrar eventos
+        """
+        self.dynamo_logger = dynamo_logger
+        self.process_id: Optional[str] = None
+    
+    def log_start(self, table_name: str, job_name: str, context: Dict[str, Any] = None) -> str:
+        """
+        Registra el inicio de la transformación - ÚNICA LLAMADA
+        
+        Args:
+            table_name: Nombre de la tabla a transformar
+            job_name: Nombre del job de Glue
+            context: Contexto adicional para el log
+            
+        Returns:
+            process_id: ID único del proceso
+        """
+        self.process_id = self.dynamo_logger.log_start(
+            table_name=table_name,
+            job_name=job_name,
+            context=context or {}
+        )
+        return self.process_id
+    
+    def log_success(self, table_name: str, job_name: str, context: Dict[str, Any] = None) -> str:
+        """
+        Registra el éxito de la transformación - ÚNICA LLAMADA
+        
+        Args:
+            table_name: Nombre de la tabla transformada
+            job_name: Nombre del job de Glue
+            context: Contexto adicional para el log
+            
+        Returns:
+            process_id: ID único del proceso
+        """
+        return self.dynamo_logger.log_success(
+            table_name=table_name,
+            job_name=job_name,
+            context=context or {}
+        )
+    
+    def log_error(self, table_name: str, error_message: str, job_name: str, context: Dict[str, Any] = None) -> str:
+        """
+        Registra un error en la transformación - ÚNICA LLAMADA
+        
+        Args:
+            table_name: Nombre de la tabla donde ocurrió el error
+            error_message: Mensaje de error
+            job_name: Nombre del job de Glue
+            context: Contexto adicional para el log
+            
+        Returns:
+            process_id: ID único del proceso
+        """
+        return self.dynamo_logger.log_failure(
+            table_name=table_name,
+            error_message=error_message,
+            job_name=job_name,
+            context=context or {}
+        )
+    
+    def log_warning(self, table_name: str, warning_message: str, job_name: str, context: Dict[str, Any] = None) -> str:
+        """
+        Registra una advertencia en la transformación
+        
+        Args:
+            table_name: Nombre de la tabla
+            warning_message: Mensaje de advertencia
+            job_name: Nombre del job de Glue
+            context: Contexto adicional para el log
+            
+        Returns:
+            process_id: ID único del proceso
+        """
+        return self.dynamo_logger.log_warning(
+            table_name=table_name,
+            warning_message=warning_message,
+            job_name=job_name,
+            context=context or {}
+        )
+    
+    def get_process_id(self) -> Optional[str]:
+        """Retorna el process_id actual"""
+        return self.process_id
+    
 class DataLakeLogger:
     """
     Clase centralizada para logging en DataLake que maneja automáticamente:
@@ -137,6 +234,7 @@ class DynamoDBLogger:
         sns_topic_arn: Optional[str] = None,
         team: str = "",
         data_source: str = "",
+        endpoint_name: str = "",
         flow_name: str = "",
         environment: str = "",
         region: str = "us-east-1",
@@ -147,6 +245,7 @@ class DynamoDBLogger:
         self.sns_topic_arn = sns_topic_arn
         self.team = team
         self.data_source = data_source
+        self.endpoint_name = endpoint_name
         self.flow_name = flow_name
         self.environment = environment
         
@@ -210,7 +309,7 @@ class DynamoDBLogger:
                 "CONTEXT": log_context,
                 "TEAM": self.team,
                 "DATASOURCE": self.data_source,
-                "ENDPOINT_NAME": context.get("endpoint_name", "") if context else "",
+                "ENDPOINT_NAME": self.endpoint_name,
                 "TABLE_NAME": table_name,
                 "ENVIRONMENT": self.environment,
                 "log_created_at": now_lima.strftime("%Y-%m-%d %H:%M:%S")
@@ -1203,11 +1302,31 @@ class DataProcessor:
         
         schema = StructType(fields)
         return self.spark.createDataFrame([], schema)
+
+def setup_logging(table_name: str, team: str, data_source: str):
+    """
+    Setup DataLakeLogger configuration - siguiendo estándar EXACTO de extract_data_v2
     
+    Args:
+        table_name: Nombre de la tabla a procesar
+        team: Equipo propietario
+        data_source: Fuente de datos
+    """
+    DataLakeLogger.configure_global(
+        log_level=logging.INFO,
+        service_name="light_transform",
+        correlation_id=f"{team}-{data_source}-light_transform-{table_name}",
+        owner=team,
+        auto_detect_env=True,
+        force_local_mode=False
+    )
+
 def main():
     """Función principal optimizada con logging integrado"""
     logger = None
+    monitor = None
     dynamo_logger = None
+    process_id = None
     
     try:
         # Obtener argumentos de Glue
@@ -1219,12 +1338,10 @@ def main():
         )
         
         # Configurar DataLakeLogger globalmente
-        DataLakeLogger.configure_global(
-            log_level=logging.INFO,
-            service_name="light_transform",
-            correlation_id=f"transform-{args['TABLE_NAME']}-{int(time.time())}",
-            owner=args.get("TEAM"),
-            auto_detect_env=True
+        setup_logging(
+            table_name=args['TABLE_NAME'],
+            team=args.get('TEAM'),
+            data_source=args.get('DATA_SOURCE')
         )
         
         # Obtener logger principal
@@ -1236,15 +1353,33 @@ def main():
             sns_topic_arn=args.get("ARN_TOPIC_FAILED"),
             team=args.get("TEAM"),
             data_source=args.get("DATA_SOURCE"),
+            endpoint_name=args.get("ENDPOINT_NAME"),
             flow_name="light_transform",
             environment=args.get("ENVIRONMENT"),
             logger_name=f"{args.get('TEAM')}-transform-dynamo"
         )
         
+        monitor = Monitor(dynamo_logger)
+
+        process_id = monitor.log_start(
+            table_name=args['TABLE_NAME'],
+            job_name=args['JOB_NAME'],
+            context={
+                "start_time": dt.datetime.now().isoformat(),
+                "environment": args.get('ENVIRONMENT'),
+                "team": args.get('TEAM'),
+                "data_source": args.get('DATA_SOURCE'),
+                "endpoint_name": args.get('ENDPOINT_NAME')  # 👈 endpoint en contexto
+            }
+        )
+
         logger.info("🚀 Iniciando Light Transform", {
             "table": args['TABLE_NAME'],
             "job": args['JOB_NAME'],
-            "team": args['TEAM']
+            "team": args['TEAM'],
+            "data_source": args['DATA_SOURCE'],
+            "endpoint": args.get('ENDPOINT_NAME'),
+            "process_id": process_id
         })
         
         # Configurar Spark con optimizaciones válidas
