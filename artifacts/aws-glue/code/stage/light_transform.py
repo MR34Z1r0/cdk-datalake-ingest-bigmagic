@@ -289,7 +289,7 @@ class DynamoDBLogger:
             # Generar timestamp y process_id únicos
             now_lima = dt.datetime.now(pytz.utc).astimezone(self.tz_lima)
             timestamp = now_lima.strftime("%Y%m%d_%H%M%S_%f")
-            process_id = f"{self.team}-{self.data_source}-{self.flow_name}-{table_name}-{timestamp}"
+            process_id = f"{self.team}-{self.data_source}-{self.endpoint_name}-{table_name.upper()}"
             
             # Preparar contexto con límites de tamaño
             log_context = self._prepare_context(context or {})
@@ -677,6 +677,7 @@ class TransformationEngine:
     def __init__(self, spark_session):
         self.spark = spark_session
         self.parser = ExpressionParser()
+        self.logger = DataLakeLogger.get_logger(__name__)
     
     def apply_transformations(self, df, columns_metadata: List[ColumnMetadata]) -> Tuple[Any, List[str]]:
         """
@@ -755,7 +756,7 @@ class TransformationEngine:
     
     def _create_transformation_expr(self, function_name: str, params: List[str], data_type: str):
         """Crea expresión de transformación para función específica"""
-        logger.info(f"Aplicando transformación: {function_name} con parámetros: {params} y tipo: {data_type}")
+        self.logger.info(f"Aplicando transformación: {function_name} con parámetros: {params} y tipo: {data_type}")
         param_list = params if params else []
         
         if function_name == 'fn_transform_Concatenate':
