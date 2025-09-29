@@ -121,7 +121,7 @@ def validate_environment():
     logger = DataLakeLogger.get_logger(__name__)
     required_vars = ['S3_RAW_BUCKET', 'DYNAMO_LOGS_TABLE']
     
-    missing = [var for var in required_vars if not settings.get(var.lower())]
+    missing = [var for var in required_vars if not settings.get(var)]
     
     if missing:
         raise ConfigurationError(f"Missing required variables: {', '.join(missing)}")
