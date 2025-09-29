@@ -155,12 +155,17 @@ class DataExtractionOrchestrator:
             **loader_config
         )
         
-        # Create monitor
-        monitor_config = self._build_monitor_config()
-        self.monitor = MonitorFactory.create(
-            monitor_type=settings.get('MONITOR_TYPE', 'dynamodb'),
-            **monitor_config
-        )
+        if not self.monitor:
+            self.monitor = MonitorFactory.create(
+                'dynamodb',
+                table_name=self.extraction_config.dynamo_logs_table,
+                project_name=self.extraction_config.data_source,
+                team=self.extraction_config.team,
+                data_source=self.extraction_config.data_source,
+                endpoint_name=self.extraction_config.endpoint_name,
+                environment=self.extraction_config.environment,
+                sns_topic_arn=self.extraction_config.topic_arn
+            )
         
         self.strategy = StrategyFactory.create(
             table_config=self.table_config,

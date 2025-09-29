@@ -193,22 +193,7 @@ def main():
             logger.info("✅ Configuration validation successful")
             logger.info("🧪 DRY RUN COMPLETED - No data was extracted")
             return 0
-        
-        # Log start SOLO a través del monitor
-        process_id = monitor.log_start(
-            table_name=extraction_config.table_name,
-            strategy="auto",  # Se determinará después
-            metadata={
-                "start_time": datetime.now().isoformat(),
-                "force_full_load": extraction_config.force_full_load,
-                "output_format": extraction_config.output_format,
-                "chunk_size": extraction_config.chunk_size,
-                "max_threads": extraction_config.max_threads
-            }
-        )
-        
-        logger.info(f"⚡ Starting data extraction...", {"process_id": process_id})
-        
+         
         # Execute extraction con el monitor integrado
         orchestrator = DataExtractionOrchestrator(extraction_config, monitor=monitor)
         result = orchestrator.execute()
