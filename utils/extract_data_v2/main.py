@@ -25,17 +25,35 @@ from config.settings import settings
 import argparse
 
 def parse_arguments():
-    """Parse command line arguments"""
+    """Parse command line arguments with .env fallback"""
     parser = argparse.ArgumentParser(description='Data Extraction Tool')
-    parser.add_argument('--table-name', required=True, help='Table name to extract')
-    parser.add_argument('--team', required=True, help='Team name')
-    parser.add_argument('--data-source', required=True, help='Data source name')
-    parser.add_argument('--environment', default='DEV', help='Environment (DEV, PROD)')
+    
+    # Cargar valores del .env como defaults
+    from config.settings import settings
+    base_config = settings.get_all()
+    
+    # Hacer los argumentos opcionales y usar valores del .env como default
+    parser.add_argument('--table-name', 
+                       default=base_config.get('TABLE_NAME'), 
+                       help='Table name to extract')
+    parser.add_argument('--team', 
+                       default=base_config.get('TEAM'), 
+                       help='Team name')
+    parser.add_argument('--data-source', 
+                       default=base_config.get('DATA_SOURCE'), 
+                       help='Data source name')
+    parser.add_argument('--environment', 
+                       default=base_config.get('ENVIRONMENT', 'DEV'), 
+                       help='Environment (DEV, PROD)')
     parser.add_argument('--force-full-load', action='store_true', help='Force full load')
     parser.add_argument('--max-threads', type=int, help='Maximum threads')
-    parser.add_argument('--output-format', choices=['parquet', 'csv', 'json'], default='parquet')
+    parser.add_argument('--output-format', 
+                       choices=['parquet', 'csv', 'json'], 
+                       default='parquet')
     parser.add_argument('--chunk-size', type=int, help='Chunk size')
-    parser.add_argument('--log-level', choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], default='INFO')
+    parser.add_argument('--log-level', 
+                       choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], 
+                       default='INFO')
     parser.add_argument('--dry-run', action='store_true', help='Validate only')
     
     return parser.parse_args()
