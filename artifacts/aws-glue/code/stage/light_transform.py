@@ -25,6 +25,10 @@ from pyspark.sql.functions import *
 from pyspark.sql import Window
 from pyspark.sql.types import *
 from pyspark.sql.session import SparkSession
+# Agregar estos imports después de los imports existentes
+from aje_libs.common.datalake_logger import DataLakeLogger
+from aje_libs.common.dynamodb_logger import DynamoDBLogger
+
 
 # Configuración de logging
 logging.basicConfig(format="%(asctime)s %(name)s %(levelname)s %(message)s")
@@ -571,50 +575,59 @@ class DeltaTableManager:
             logger.warning(f"Error optimizando tabla Delta en {s3_path}: {str(e)}")
 
 class DataProcessor:
-    """Procesador principal de datos optimizado con logging en DynamoDB y alertas SNS"""
+    """Procesador principal de datos optimizado con logging integrado"""
     
-    def __init__(self, spark_session, config_manager, transformation_engine, delta_manager, dynamodb_table, sns_topic):
+    def __init__(self, spark_session, config_manager, transformation_engine, delta_manager, logger, dynamo_logger):
         self.spark = spark_session
         self.config_manager = config_manager
         self.transformation_engine = transformation_engine
         self.delta_manager = delta_manager
-        self.dynamodb_table = dynamodb_table
-        self.sns_topic = sns_topic
+        self.logger = logger
+        self.dynamo_logger = dynamo_logger
         self.now_lima = dt.datetime.now(pytz.utc).astimezone(TZ_LIMA)
-
-        # Clientes AWS
-        self.dynamo_client = boto3.client("dynamodb")
-        self.sns_client = boto3.client("sns")
     
     def process_table(self, args: Dict[str, str]) -> None:
-        """Procesa una tabla completa"""
-        log_id = f"{args['TEAM']}-{args['DATA_SOURCE']}-{args['TABLE_NAME']}-{int(time.time())}"
-
-        # Guardar log de inicio
-        self._log_to_dynamo(log_id, args, "STARTED", "Job iniciado")
+        """Procesa una tabla completa con logging detallado"""
+        table_name = args['TABLE_NAME']
         
         try:
+            self.logger.info("🔄 Cargando configuraciones", {"table": table_name})
+            
             # Cargar configuraciones
             table_config, endpoint_config, columns_metadata = self._load_configurations(args)
             
-            logger.info(f"Procesando tabla {args['TABLE_NAME']} con {len(columns_metadata)} columnas")
-            for col_meta in columns_metadata[:5]:
-                logger.info(f"  Columna: {col_meta.name}, Transformación: {col_meta.transformation}")
+            self.logger.info(f"📋 Configuraciones cargadas", {
+                "table": table_name,
+                "columns_count": len(columns_metadata)
+            })
             
             # Construir rutas S3
             s3_paths = self._build_s3_paths(args, table_config)
-            logger.info(f"Leyendo desde: {s3_paths['raw']}")
-            logger.info(f"Escribiendo a: {s3_paths['stage']}")
+            self.logger.info(f"📂 Rutas S3 configuradas", {
+                "raw_path": s3_paths['raw'],
+                "stage_path": s3_paths['stage']
+            })
             
             # Leer datos source
             source_df = self._read_source_data(s3_paths['raw'])
             
             if source_df.count() == 0:
+                self.logger.warning("⚠️ No se encontraron datos para procesar", {"table": table_name})
                 self._handle_empty_data(s3_paths['stage'], columns_metadata)
-                self._log_to_dynamo(log_id, args, "WARNING", "No data detected to migrate")
+                
+                self.dynamo_logger.log_warning(
+                    table_name=table_name,
+                    warning_message="No data detected to migrate",
+                    job_name=args['JOB_NAME'],
+                    context={"empty_data_handled": True}
+                )
                 return
             
-            logger.info(f"Datos fuente leídos: {source_df.count()} filas")
+            records_count = source_df.count()
+            self.logger.info(f"📊 Datos fuente leídos", {
+                "table": table_name,
+                "records_count": records_count
+            })
             
             # Aplicar transformaciones
             transformed_df, transformation_errors = self.transformation_engine.apply_transformations(
@@ -622,75 +635,42 @@ class DataProcessor:
             )
             
             if transformation_errors:
-                logger.warning(f"Errores de transformación: {len(transformation_errors)}")
-                for error in transformation_errors:
-                    logger.warning(f"  {error}")
+                self.logger.warning(f"⚠️ Errores de transformación detectados", {
+                    "table": table_name,
+                    "errors_count": len(transformation_errors),
+                    "errors": transformation_errors[:3]  # Solo los primeros 3
+                })
             
-            # Post-procesamiento
+            # Post-procesamiento y escritura
             final_df = self._apply_post_processing(transformed_df, columns_metadata)
-            logger.info(f"Datos transformados: {final_df.count()} filas")
+            final_count = final_df.count()
             
-            # Escribir a stage
+            self.logger.info(f"🔄 Escribiendo datos transformados", {
+                "table": table_name,
+                "final_records_count": final_count
+            })
+            
             self._write_to_stage(final_df, s3_paths['stage'], table_config, columns_metadata)
             
             # Optimizar tabla Delta
             self.delta_manager.optimize_delta_table(s3_paths['stage'])
+            self.logger.info("🎯 Tabla Delta optimizada", {"table": table_name})
             
-            # Log de éxito
-            status_msg = f"Procesamiento exitoso para tabla {args['TABLE_NAME']}"
-            if transformation_errors:
-                status_msg += f" con {len(transformation_errors)} advertencias"
-            self._log_to_dynamo(log_id, args, "SUCCESS", status_msg)
-            
-        except Exception as e:
-            error_msg = str(e)
-            self._log_to_dynamo(log_id, args, "FAILED", error_msg)
-            self._send_sns_alert(args, error_msg)
-            # NO levantamos excepción → Glue siempre termina SUCCESS
-            return
-    
-    def _log_to_dynamo(self, process_id: str, args: Dict[str, str], status: str, message: str):
-        """Guarda log en DynamoDB con las claves definidas"""
-        try:
-            self.dynamo_client.put_item(
-                TableName=self.dynamodb_table,
-                Item={
-                    "PROCESS_ID": {"S": process_id},  # PK
-                    "DATE_SYSTEM": {"S": dt.datetime.now(pytz.utc).strftime("%Y-%m-%d %H:%M:%S")},  # SK
-                    "TableName": {"S": args["TABLE_NAME"]},
-                    "Team": {"S": args["TEAM"]},
-                    "DataSource": {"S": args["DATA_SOURCE"]},
-                    "Status": {"S": status},
-                    "Message": {"S": message},
-                    "JobName": {"S": args["JOB_NAME"]},
-                    "Environment": {"S": args["ENVIRONMENT"]},
-                    "Timestamp": {"S": dt.datetime.now(pytz.utc).isoformat()}
+            # Registrar éxito
+            self.dynamo_logger.log_success(
+                table_name=table_name,
+                job_name=args['JOB_NAME'],
+                context={
+                    "end_time": dt.datetime.now().isoformat(),
+                    "records_processed": final_count,
+                    "transformation_errors_count": len(transformation_errors),
+                    "output_format": "delta"
                 }
             )
+            
         except Exception as e:
-            logger.error(f"Error guardando log en DynamoDB: {str(e)}")
-    
-    def _send_sns_alert(self, args: Dict[str, str], error_message: str):
-        """Envía alerta a SNS en caso de error"""
-        try:
-            subject = f"[Glue Job ERROR] {args['JOB_NAME']} - {args['TABLE_NAME']}"
-            message = f"""
-            Error en Glue Job {args['JOB_NAME']}
-            Tabla: {args['TABLE_NAME']}
-            Team: {args['TEAM']}
-            DataSource: {args['DATA_SOURCE']}
-            Environment: {args['ENVIRONMENT']}
-
-            Detalle del error:
-            {error_message}
-            """
-            self.sns_client.publish(
-                TopicArn=self.sns_topic,
-                Subject=subject,
-                Message=message
-            )
-        except Exception as e:
-            logger.error(f"Error enviando alerta SNS: {str(e)}")
+            # Dejar que la excepción se propague para ser manejada en main()
+            raise
     
     def _load_configurations(self, args: Dict[str, str]) -> Tuple[TableConfig, EndpointConfig, List[ColumnMetadata]]:
         """Carga todas las configuraciones necesarias"""
@@ -842,68 +822,129 @@ class DataProcessor:
         schema = StructType(fields)
         return self.spark.createDataFrame([], schema)
     
-    def _log_success(self, args: Dict[str, str], table_config: TableConfig, endpoint_config: EndpointConfig, errors: List[str]):
-        """Log de éxito"""
-        success_msg = f"Procesamiento exitoso para tabla {args['TABLE_NAME']}"
-        if errors:
-            success_msg += f" con {len(errors)} advertencias de transformación"
-        logger.info(success_msg)
-        # Implementar logging a DynamoDB si es necesario
-        pass
-    
-    def _log_error(self, args: Dict[str, str], error_message: str):
-        """Log de error"""
-        logger.error(f"Error procesando tabla {args['TABLE_NAME']}: {error_message}")
-        # Implementar logging a DynamoDB y SNS si es necesario
-        pass
-
 def main():
-    """Función principal optimizada"""
-    # Obtener argumentos
-    args = getResolvedOptions(
-        sys.argv, 
-        ['JOB_NAME', 'S3_RAW_BUCKET', 'S3_STAGE_BUCKET', 'DYNAMO_LOGS_TABLE', 
-         'TABLE_NAME', 'ARN_TOPIC_FAILED', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 
-         'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'ENDPOINT_NAME', 'ENVIRONMENT']
-    )
+    """Función principal optimizada con logging integrado"""
+    logger = None
+    dynamo_logger = None
     
-    # Configurar Spark con optimizaciones válidas
-    spark = SparkSession.builder \
-        .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
-        .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
-        .config("spark.databricks.delta.retentionDurationCheck.enabled", "false") \
-        .config("spark.databricks.delta.schema.autoMerge.enabled", "true") \
-        .config("spark.sql.adaptive.enabled", "true") \
-        .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
-        .config("spark.sql.adaptive.skewJoin.enabled", "true") \
-        .config("spark.sql.adaptive.localShuffleReader.enabled", "true") \
-        .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
-        .config("spark.sql.parquet.datetimeRebaseModeInRead", "CORRECTED") \
-        .config("spark.sql.parquet.datetimeRebaseModeInWrite", "LEGACY") \
-        .config("spark.sql.legacy.timeParserPolicy", "LEGACY") \
-        .config("spark.sql.parquet.int96RebaseModeInWrite", "CORRECTED") \
-        .getOrCreate()
-    
-    # Configurar sistema de archivos S3
-    spark.sparkContext._jsc.hadoopConfiguration().set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
-    spark.sparkContext._jsc.hadoopConfiguration().set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
-    
-    # Inicializar componentes
-    s3_client = boto3.client('s3')
-    config_manager = ConfigurationManager(s3_client)
-    transformation_engine = TransformationEngine(spark)
-    delta_manager = DeltaTableManager(spark)
-    
-    # Procesar tabla
-    processor = DataProcessor(
-        spark,
-        config_manager,
-        transformation_engine,
-        delta_manager,
-        args["DYNAMO_LOGS_TABLE"],   # <- tabla DynamoDB
-        args["ARN_TOPIC_FAILED"]     # <- topic SNS
-    )
-    processor.process_table(args)
+    try:
+        # Obtener argumentos de Glue
+        args = getResolvedOptions(
+            sys.argv, 
+            ['JOB_NAME', 'S3_RAW_BUCKET', 'S3_STAGE_BUCKET', 'DYNAMO_LOGS_TABLE', 
+             'TABLE_NAME', 'ARN_TOPIC_FAILED', 'PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 
+             'TABLES_CSV_S3', 'CREDENTIALS_CSV_S3', 'COLUMNS_CSV_S3', 'ENDPOINT_NAME', 'ENVIRONMENT']
+        )
+        
+        # Configurar DataLakeLogger globalmente
+        DataLakeLogger.configure_global(
+            log_level=logging.INFO,
+            service_name="light_transform",
+            correlation_id=f"transform-{args['TABLE_NAME']}-{int(time.time())}",
+            owner=args.get("TEAM"),
+            auto_detect_env=True
+        )
+        
+        # Obtener logger principal
+        logger = DataLakeLogger.get_logger(__name__)
+        
+        # Configurar DynamoDB Logger
+        dynamo_logger = DynamoDBLogger(
+            table_name=args.get("DYNAMO_LOGS_TABLE"),
+            sns_topic_arn=args.get("ARN_TOPIC_FAILED"),
+            team=args.get("TEAM"),
+            data_source=args.get("DATA_SOURCE"),
+            flow_name="light_transform",
+            environment=args.get("ENVIRONMENT"),
+            logger_name=f"{args.get('TEAM')}-transform-dynamo"
+        )
+        
+        logger.info("🚀 Iniciando Light Transform", {
+            "table": args['TABLE_NAME'],
+            "job": args['JOB_NAME'],
+            "team": args['TEAM']
+        })
+        
+        # Configurar Spark con optimizaciones válidas
+        spark = SparkSession.builder \
+            .config("spark.sql.extensions", "io.delta.sql.DeltaSparkSessionExtension") \
+            .config("spark.sql.catalog.spark_catalog", "org.apache.spark.sql.delta.catalog.DeltaCatalog") \
+            .config("spark.databricks.delta.retentionDurationCheck.enabled", "false") \
+            .config("spark.databricks.delta.schema.autoMerge.enabled", "true") \
+            .config("spark.sql.adaptive.enabled", "true") \
+            .config("spark.sql.adaptive.coalescePartitions.enabled", "true") \
+            .config("spark.sql.adaptive.skewJoin.enabled", "true") \
+            .config("spark.sql.adaptive.localShuffleReader.enabled", "true") \
+            .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+            .getOrCreate()
+        
+        # Configurar sistema de archivos S3
+        spark.sparkContext._jsc.hadoopConfiguration().set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
+        spark.sparkContext._jsc.hadoopConfiguration().set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
+        
+        # Registrar inicio del proceso
+        process_id = dynamo_logger.log_start(
+            table_name=args['TABLE_NAME'],
+            job_name=args['JOB_NAME'],
+            context={
+                "start_time": dt.datetime.now().isoformat(),
+                "s3_raw_bucket": args['S3_RAW_BUCKET'],
+                "s3_stage_bucket": args['S3_STAGE_BUCKET'],
+                "endpoint_name": args['ENDPOINT_NAME']
+            }
+        )
+        
+        # Inicializar componentes
+        s3_client = boto3.client('s3')
+        config_manager = ConfigurationManager(s3_client)
+        transformation_engine = TransformationEngine(spark)
+        delta_manager = DeltaTableManager(spark)
+        
+        # Procesar tabla con logging integrado
+        processor = DataProcessor(
+            spark,
+            config_manager,
+            transformation_engine,
+            delta_manager,
+            logger,
+            dynamo_logger
+        )
+        
+        processor.process_table(args)
+        
+        logger.info("✅ Light Transform completado exitosamente", {
+            "table": args['TABLE_NAME'],
+            "process_id": process_id
+        })
+        
+    except Exception as e:
+        error_msg = str(e)
+        if logger:
+            logger.error(f"❌ Error en Light Transform: {error_msg}", {
+                "table": args.get('TABLE_NAME', 'unknown'),
+                "job": args.get('JOB_NAME', 'unknown'),
+                "error_type": type(e).__name__
+            })
+        
+        # Registrar error en DynamoDB (esto enviará SNS automáticamente)
+        if dynamo_logger:
+            dynamo_logger.log_failure(
+                table_name=args.get('TABLE_NAME', 'unknown'),
+                error_message=error_msg,
+                job_name=args.get('JOB_NAME', 'unknown'),
+                context={
+                    "error_type": type(e).__name__,
+                    "failed_at": dt.datetime.now().isoformat()
+                }
+            )
+        
+        # El job debe terminar exitosamente para evitar dobles notificaciones
+        if logger:
+            logger.info("ℹ️ Job terminando como SUCCESS para evitar dobles notificaciones")
+        
+    finally:
+        if 'spark' in locals():
+            spark.stop()
 
 if __name__ == "__main__":
     main()
