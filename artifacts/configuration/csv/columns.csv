@@ -1113,7 +1113,7 @@ fecha_modificacion;25;F;F;F;F;timestamp;T_DOCUMENTO_ACOBRAR_ABONO;fn_transform_D
 usuario_modificacion;26;F;F;F;F;string;T_DOCUMENTO_ACOBRAR_ABONO;fn_transform_ClearString(ultusumod)
 cod_cobrador;27;F;F;F;F;string;T_DOCUMENTO_ACOBRAR_ABONO;fn_transform_ClearString(cobrador)
 fecha_confirmacion;28;F;F;F;F;date;T_DOCUMENTO_ACOBRAR_ABONO;fn_transform_DateMagic(fecconfirma,yyyy-MM-dd,1900-01-01)
-cod_ext_abono;29;F;F;F;F;string;T_DOCUMENTO_ACOBRAR_ABONO;fn_transform_ClearString(idcobroext)
+cod_ext_abono;29;F;F;F;F;string;T_DOCUMENTO_ACOBRAR_ABONO;fn_transform_ClearString(idcobext)
 cod_compania_licencia;30;F;F;F;F;string;T_DOCUMENTO_ACOBRAR_ABONO;fn_transform_ClearString(compania)
 cod_licencia;31;F;F;F;F;string;T_DOCUMENTO_ACOBRAR_ABONO;fn_transform_ClearString(idlicencia)
 cod_licencia_detalle;32;F;F;F;F;string;T_DOCUMENTO_ACOBRAR_ABONO;fn_transform_ClearString(idseclicencia)
