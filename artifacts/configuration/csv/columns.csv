@@ -1588,6 +1588,7 @@ nro_documento_venta;19;F;F;F;F;string;T_LICENCIA_CUOTA;fn_transform_ClearString(
 cod_articulo;20;F;F;F;F;string;T_LICENCIA_CUOTA;fn_transform_ClearString(articulo)
 cod_operacion;21;F;F;F;F;string;T_LICENCIA_CUOTA;fn_transform_ClearString(opecomvta)
 cod_unidad_venta;22;F;F;F;F;string;T_LICENCIA_CUOTA;fn_transform_ClearString(undvta)
+tipo_generacion;22;F;F;F;F;string;T_LICENCIA_CUOTA;fn_transform_ClearString(tgenera)
 fecha_creacion;23;F;F;F;F;timestamp;T_LICENCIA_CUOTA;fn_transform_DatetimeMagic(feccrea,horcrea,yyyy-MM-dd HH:mm:ss,1900-01-01 00:00:01)
 usuario_creacion;24;F;F;F;F;string;T_LICENCIA_CUOTA;fn_transform_ClearString(usucrea)
 fecha_modificacion;25;F;F;F;F;timestamp;T_LICENCIA_CUOTA;fn_transform_DatetimeMagic(fecultmod,horultmod,yyyy-MM-dd HH:mm:ss,1900-01-01 00:00:01)
