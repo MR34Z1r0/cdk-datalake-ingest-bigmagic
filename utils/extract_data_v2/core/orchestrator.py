@@ -69,8 +69,8 @@ class DataExtractionOrchestrator:
             # Execute extraction strategy
             extraction_result = self._execute_extraction_strategy()
             
-            # Log success
-            self.monitor.log_success(extraction_result)
+            if extraction_result.records_extracted > 0:
+                self.monitor.log_success(extraction_result)
             
             return extraction_result
             
@@ -399,6 +399,38 @@ class DataExtractionOrchestrator:
         end_time = datetime.now()
         execution_time = (end_time - start_time).total_seconds()
         
+        if total_records == 0:
+            self.logger.warning(f"⚠️ No records extracted for table {self.extraction_config.table_name}")
+            
+            # Registrar WARNING en DynamoDB
+            if self.monitor:
+                self.monitor.log_warning(
+                    table_name=self.extraction_config.table_name,
+                    warning_message="No data extracted - Table is empty or no records match filter criteria",
+                    metadata={
+                        'strategy_used': self.strategy.get_strategy_name(),
+                        'execution_time_seconds': execution_time,
+                        'files_created': len(files_created),
+                        'start_time': start_time.isoformat(),
+                        'end_time': end_time.isoformat()
+                    }
+                )
+            
+            # Crear resultado con success=True pero indicando que fue warning
+            result = ExtractionResult(
+                success=True,  # Técnicamente exitoso, pero con warning
+                table_name=self.extraction_config.table_name,
+                records_extracted=0,
+                files_created=files_created,
+                execution_time_seconds=execution_time,
+                strategy_used=self.strategy.get_strategy_name(),
+                metadata={**self._build_metadata(), 'warning': 'no_data_extracted'},
+                start_time=start_time,
+                end_time=end_time
+            )
+            
+            self.extraction_result = result
+            return result
         # Create result
         result = ExtractionResult(
             success=True,
