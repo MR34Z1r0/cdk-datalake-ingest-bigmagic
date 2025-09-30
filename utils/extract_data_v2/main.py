@@ -253,21 +253,7 @@ def main():
             logger.error(traceback.format_exc())
         else:
             print(f"ERROR: {error_msg}")
-            traceback.print_exc()
-        
-        # Log error SOLO a través del monitor
-        if monitor and extraction_config:
-            monitor.log_error(
-                table_name=extraction_config.table_name,
-                error_message=error_msg,
-                metadata={
-                    "error_type": "UnexpectedError",
-                    "failed_at": datetime.now().isoformat(),
-                    "traceback": traceback.format_exc()[:1000],  # Limitado
-                    "process_id": process_id
-                }
-            )
-            
+            traceback.print_exc()        
         return 99
 
 if __name__ == '__main__':
