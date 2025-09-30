@@ -317,11 +317,7 @@ class DynamoDBLogger:
             
             # Insertar en DynamoDB
             self.dynamodb_table.put_item(Item=record)
-            self.logger.info(f"Log registrado en DynamoDB", {
-                "process_id": process_id, 
-                "status": status,
-                "table": table_name
-            })
+            self.logger.info(f"Log registrado en DynamoDB - process_id={process_id}, status={status}, table={table_name}")
             
             # Enviar notificación SNS si es error
             if status.upper() == "FAILED":
@@ -345,8 +341,8 @@ class DynamoDBLogger:
         context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Registra inicio de proceso"""
-        message = f"Iniciando procesamiento de tabla {table_name}"
-        self.logger.info(message, {"table": table_name, "job": job_name})
+        message = f"Iniciando procesamiento de tabla {table_name} job {job_name}"
+        self.logger.info(message)
         return self.log_process_status("RUNNING", message, table_name, job_name, context)
     
     def log_success(
@@ -356,8 +352,8 @@ class DynamoDBLogger:
         context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Registra éxito de proceso"""
-        message = f"Procesamiento exitoso de tabla {table_name}"
-        self.logger.info(message, {"table": table_name, "job": job_name})
+        message = f"Procesamiento exitoso de tabla {table_name} job {job_name}"
+        self.logger.info(message)
         return self.log_process_status("SUCCESS", message, table_name, job_name, context)
     
     def log_failure(
@@ -368,8 +364,8 @@ class DynamoDBLogger:
         context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Registra fallo de proceso y envía notificación"""
-        message = f"Error procesando tabla {table_name}: {error_message}"
-        self.logger.error(message, {"table": table_name, "job": job_name, "error": error_message})
+        message = f"Error procesando tabla {table_name} job {job_name} error: {error_message}"
+        self.logger.error(message)
         return self.log_process_status("FAILED", message, table_name, job_name, context)
     
     def log_warning(
@@ -380,8 +376,8 @@ class DynamoDBLogger:
         context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Registra advertencia de proceso"""
-        message = f"Advertencia procesando tabla {table_name}: {warning_message}"
-        self.logger.warning(message, {"table": table_name, "job": job_name, "warning": warning_message})
+        message = f"Advertencia procesando tabla {table_name} job {job_name} warning: {warning_message}"
+        self.logger.warning(message)
         return self.log_process_status("WARNING", message, table_name, job_name, context)
     
     def _prepare_context(self, context: Dict[str, Any]) -> Dict[str, Any]:
@@ -1008,6 +1004,7 @@ class DeltaTableManager:
     
     def __init__(self, spark_session):
         self.spark = spark_session
+        self.logger = DataLakeLogger.get_logger(__name__)
     
     def write_delta_table(self, df, s3_path: str, partition_columns: List[str], 
                          mode: str = "overwrite") -> None:
@@ -1054,7 +1051,7 @@ class DeltaTableManager:
             delta_table.generate("symlink_format_manifest")
             
         except Exception as e:
-            logger.warning(f"Error optimizando tabla Delta en {s3_path}: {str(e)}")
+            self.logger.warning(f"Error optimizando tabla Delta en {s3_path}: {str(e)}")
 
 class DataProcessor:
     """Procesador principal de datos optimizado con logging integrado"""
@@ -1073,29 +1070,28 @@ class DataProcessor:
         table_name = args['TABLE_NAME']
         
         try:
-            self.logger.info("🔄 Cargando configuraciones", {"table": table_name})
+            self.logger.info(f"🔄 Cargando configuraciones table {table_name}")
             
             # Cargar configuraciones
             table_config, endpoint_config, columns_metadata = self._load_configurations(args)
             
-            self.logger.info(f"📋 Configuraciones cargadas", {
-                "table": table_name,
-                "columns_count": len(columns_metadata)
-            })
+            self.logger.info(f"📋 Configuraciones cargadas table {table_name} columns_count {len(columns_metadata)}")
             
             # Construir rutas S3
             s3_paths = self._build_s3_paths(args, table_config)
-            self.logger.info(f"📂 Rutas S3 configuradas", {
-                "raw_path": s3_paths['raw'],
-                "stage_path": s3_paths['stage']
-            })
+            self.logger.info(f"📂 Rutas S3 configuradas raw_path: {s3_paths['raw']} stage_path {s3_paths['stage']}")
             
             # Leer datos source
             source_df = self._read_source_data(s3_paths['raw'])
             
             if source_df.count() == 0:
-                self.logger.warning("⚠️ No se encontraron datos para procesar", {"table": table_name})
-                self._handle_empty_data(s3_paths['stage'], columns_metadata)
+                self.logger.warning(f"⚠️ No se encontraron datos para procesar table: {table_name}")
+                
+                if not DeltaTable.isDeltaTable(self.spark, s3_paths['stage']):
+                    # Crear DataFrame vacío con esquema
+                    empty_df = self._create_empty_dataframe(columns_metadata)
+                    partition_columns = [col.name for col in columns_metadata if col.is_partition]
+                    self.delta_manager.write_delta_table(empty_df, s3_paths['stage'], partition_columns)
                 
                 self.dynamo_logger.log_warning(
                     table_name=table_name,
@@ -1103,13 +1099,11 @@ class DataProcessor:
                     job_name=args['JOB_NAME'],
                     context={"empty_data_handled": True}
                 )
+                self.logger.info(f"✅ Proceso completado - tabla vacía manejada correctamente")    
                 return
             
             records_count = source_df.count()
-            self.logger.info(f"📊 Datos fuente leídos", {
-                "table": table_name,
-                "records_count": records_count
-            })
+            self.logger.info(f"📊 Datos fuente leídos table: {table_name} records_count: {records_count}")
             
             # Aplicar transformaciones
             transformed_df, transformation_errors = self.transformation_engine.apply_transformations(
@@ -1117,26 +1111,19 @@ class DataProcessor:
             )
             
             if transformation_errors:
-                self.logger.warning(f"⚠️ Errores de transformación detectados", {
-                    "table": table_name,
-                    "errors_count": len(transformation_errors),
-                    "errors": transformation_errors[:3]  # Solo los primeros 3
-                })
+                self.logger.warning(f"⚠️ Errores de transformación detectados table: {table_name} errors_count: {len(transformation_errors)} errors: {transformation_errors[:3]}")
             
             # Post-procesamiento y escritura
             final_df = self._apply_post_processing(transformed_df, columns_metadata)
             final_count = final_df.count()
             
-            self.logger.info(f"🔄 Escribiendo datos transformados", {
-                "table": table_name,
-                "final_records_count": final_count
-            })
+            self.logger.info(f"🔄 Escribiendo datos transformados table: {table_name} final_records_count: {final_count}")
             
             self._write_to_stage(final_df, s3_paths['stage'], table_config, columns_metadata)
             
             # Optimizar tabla Delta
             self.delta_manager.optimize_delta_table(s3_paths['stage'])
-            self.logger.info("🎯 Tabla Delta optimizada", {"table": table_name})
+            self.logger.info(f"🎯 Tabla Delta optimizada table: {table_name}")
             
             # Registrar éxito
             self.dynamo_logger.log_success(
@@ -1244,7 +1231,7 @@ class DataProcessor:
             df.cache()  # Cache para optimizar múltiples operaciones
             return df
         except Exception as e:
-            logger.error(f"Error leyendo datos desde {s3_raw_path}: {str(e)}")
+            self.logger.error(f"Error leyendo datos desde {s3_raw_path}: {str(e)}")
             # Retornar DataFrame vacío en caso de error
             return self.spark.createDataFrame([], StructType([]))
     
@@ -1283,17 +1270,7 @@ class DataProcessor:
         else:
             # Crear nueva tabla
             self.delta_manager.write_delta_table(df, s3_stage_path, partition_columns, "overwrite")
-    
-    def _handle_empty_data(self, s3_stage_path: str, columns_metadata: List[ColumnMetadata]):
-        """Maneja datos vacíos"""
-        if not DeltaTable.isDeltaTable(self.spark, s3_stage_path):
-            # Crear DataFrame vacío con esquema
-            empty_df = self._create_empty_dataframe(columns_metadata)
-            partition_columns = [col.name for col in columns_metadata if col.is_partition]
-            self.delta_manager.write_delta_table(empty_df, s3_stage_path, partition_columns)
-        
-        raise Exception("No data detected to migrate")
-    
+     
     def _create_empty_dataframe(self, columns_metadata: List[ColumnMetadata]):
         """Crea DataFrame vacío con esquema"""
         fields = []
@@ -1374,14 +1351,7 @@ def main():
             }
         )
 
-        logger.info("🚀 Iniciando Light Transform", {
-            "table": args['TABLE_NAME'],
-            "job": args['JOB_NAME'],
-            "team": args['TEAM'],
-            "data_source": args['DATA_SOURCE'],
-            "endpoint": args.get('ENDPOINT_NAME'),
-            "process_id": process_id
-        })
+        logger.info(f"🚀 Iniciando Light Transform table: {args['TABLE_NAME']} job: {args['JOB_NAME']} team: {args['TEAM']} data_source: {args['DATA_SOURCE']} endpoint: {args.get('ENDPOINT_NAME')} process_id: {process_id}")
         
         # Configurar Spark con optimizaciones válidas
         spark = SparkSession.builder \
@@ -1399,19 +1369,7 @@ def main():
         # Configurar sistema de archivos S3
         spark.sparkContext._jsc.hadoopConfiguration().set("fs.s3.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
         spark.sparkContext._jsc.hadoopConfiguration().set("mapreduce.fileoutputcommitter.marksuccessfuljobs", "false")
-        
-        # Registrar inicio del proceso
-        process_id = dynamo_logger.log_start(
-            table_name=args['TABLE_NAME'],
-            job_name=args['JOB_NAME'],
-            context={
-                "start_time": dt.datetime.now().isoformat(),
-                "s3_raw_bucket": args['S3_RAW_BUCKET'],
-                "s3_stage_bucket": args['S3_STAGE_BUCKET'],
-                "endpoint_name": args['ENDPOINT_NAME']
-            }
-        )
-        
+         
         # Inicializar componentes
         s3_client = boto3.client('s3')
         config_manager = ConfigurationManager(s3_client)
@@ -1429,20 +1387,13 @@ def main():
         )
         
         processor.process_table(args)
-        
-        logger.info("✅ Light Transform completado exitosamente", {
-            "table": args['TABLE_NAME'],
-            "process_id": process_id
-        })
+         
+        logger.info(f"✅ Light Transform completado exitosamente table: {args['TABLE_NAME']} process_id: {process_id}")
         
     except Exception as e:
         error_msg = str(e)
         if logger:
-            logger.error(f"❌ Error en Light Transform: {error_msg}", {
-                "table": args.get('TABLE_NAME', 'unknown'),
-                "job": args.get('JOB_NAME', 'unknown'),
-                "error_type": type(e).__name__
-            })
+            logger.error(f"❌ Error en Light Transform: {error_msg} table: {args.get('TABLE_NAME', 'unknown')} job: {args.get('JOB_NAME', 'unknown')} error_type: {type(e).__name__}")
         
         # Registrar error en DynamoDB (esto enviará SNS automáticamente)
         if dynamo_logger:
