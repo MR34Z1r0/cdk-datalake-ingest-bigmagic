@@ -1258,6 +1258,21 @@ class DataProcessor:
         """Escribe datos a stage"""
         partition_columns = [col.name for col in columns_metadata if col.is_partition]
         
+        # 👇 AGREGAR ESTE LOGGING
+        self.logger.info(f"🔍 DEBUG _write_to_stage - partitions: {partition_columns}")
+        self.logger.info(f"🔍 DEBUG _write_to_stage - s3_path: {s3_stage_path}")
+        self.logger.info(f"🔍 DEBUG _write_to_stage - schema: {df.schema}")
+        self.logger.info(f"🔍 DEBUG _write_to_stage - load_type: {table_config.load_type}")
+
+        # Verificar que el DataFrame no esté vacío antes de escribir
+        count = df.count()
+        self.logger.info(f"🔍 DEBUG _write_to_stage - df.count: {count}")
+        if count == 0:
+            self.logger.warning(f"⚠️ DataFrame vacío, creando tabla vacía")
+            empty_df = self._create_empty_dataframe(columns_metadata)
+            self.delta_manager.write_delta_table(empty_df, s3_stage_path, partition_columns, "overwrite")
+            return
+        
         if DeltaTable.isDeltaTable(self.spark, s3_stage_path):
             if table_config.load_type in ['incremental', 'between-date']:
                 # Merge incremental
