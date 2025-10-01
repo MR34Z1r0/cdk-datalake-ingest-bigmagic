@@ -1155,6 +1155,7 @@ class DeltaTableManager:
     def write_delta_table(self, df, s3_path: str, partition_columns: List[str], 
                          mode: str = "overwrite") -> None:
         """Escribe DataFrame a tabla Delta con optimizaciones válidas"""
+        df.show()
         writer = df.write.format("delta").mode(mode)
         
         if partition_columns:
