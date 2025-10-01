@@ -600,7 +600,7 @@ class ConfigurationManager:
         return sanitized
 
 class ExpressionParser:
-    """Parser robusto para expresiones de transformación"""
+    """Parser robusto para expresiones de transformación con soporte para funciones anidadas"""
     
     def __init__(self):
         self.function_pattern = re.compile(r'(\w+)\((.*)\)$')
@@ -608,6 +608,7 @@ class ExpressionParser:
     def parse_transformation(self, expression: str) -> List[Tuple[str, List[str]]]:
         """
         Parsea expresión de transformación y retorna lista de (función, parámetros)
+        Ahora soporta funciones anidadas
         """
         if not expression or expression.strip() == '':
             return []
@@ -623,14 +624,19 @@ class ExpressionParser:
         function_name = match.group(1)
         params_str = match.group(2)
         
-        # Extraer parámetros
+        # Extraer parámetros (que pueden contener funciones anidadas)
         params = self._extract_parameters(params_str) if params_str else []
         functions_with_params.append((function_name, params))
         
         return functions_with_params
     
     def _extract_parameters(self, params_str: str) -> List[str]:
-        """Extrae parámetros de una función manejando comas en strings"""
+        """
+        Extrae parámetros de una función manejando:
+        - Comas en strings
+        - Paréntesis anidados (para funciones anidadas)
+        - Comillas
+        """
         if not params_str:
             return []
         
@@ -653,6 +659,7 @@ class ExpressionParser:
                 paren_count -= 1
                 current_param += char
             elif char == ',' and paren_count == 0 and not in_quotes:
+                # Coma a nivel raíz, es separador de parámetros
                 if current_param.strip():
                     params.append(current_param.strip())
                 current_param = ""
@@ -668,7 +675,7 @@ class ExpressionParser:
         return params
 
 class TransformationEngine:
-    """Motor de transformaciones optimizado"""
+    """Motor de transformaciones optimizado con soporte para funciones anidadas"""
     
     def __init__(self, spark_session):
         self.spark = spark_session
@@ -677,7 +684,7 @@ class TransformationEngine:
     
     def apply_transformations(self, df, columns_metadata: List[ColumnMetadata]) -> Tuple[Any, List[str]]:
         """
-        Aplica todas las transformaciones de manera optimizada
+        Aplica todas las transformaciones de manera optimizada con soporte para funciones anidadas
         Retorna (DataFrame transformado, lista de errores)
         """
         errors = []
@@ -688,33 +695,427 @@ class TransformationEngine:
         
         for column_meta in sorted_columns:
             try:
-                expr = self._build_transformation_expression(column_meta)
+                expr = self._build_transformation_expression(column_meta, df)
                 if expr is not None:
                     transformation_exprs.append(expr.alias(column_meta.name))
                 else:
                     # Columna simple sin transformación
                     if column_meta.transformation and column_meta.transformation.strip():
-                        # Si hay transformación pero no se pudo parsear, usar la columna original
                         transformation_exprs.append(col(column_meta.transformation).alias(column_meta.name))
                     else:
-                        # Sin transformación definida, crear columna null con tipo apropiado
                         spark_type = self._get_spark_type(column_meta.data_type)
                         transformation_exprs.append(lit(None).cast(spark_type).alias(column_meta.name))
             except Exception as e:
                 error_msg = f"Error en columna {column_meta.name}: {str(e)}"
                 errors.append(error_msg)
                 self.logger.error(error_msg)
-                # Agregar columna con valor null apropiado en caso de error
                 spark_type = self._get_spark_type(column_meta.data_type)
                 transformation_exprs.append(lit(None).cast(spark_type).alias(column_meta.name))
         
-        # Aplicar todas las transformaciones en una sola operación
         if transformation_exprs:
             transformed_df = df.select(*transformation_exprs)
         else:
             transformed_df = df
         
         return transformed_df, errors
+    
+    def _build_transformation_expression(self, column_meta: ColumnMetadata, df):
+        """Construye expresión de transformación para una columna con soporte para funciones anidadas"""
+        functions_with_params = self.parser.parse_transformation(column_meta.transformation)
+        
+        if not functions_with_params:
+            return None
+        
+        if len(functions_with_params) == 1 and functions_with_params[0][0] == 'simple_column':
+            column_name = functions_with_params[0][1][0] if functions_with_params[0][1] else column_meta.name
+            return col(column_name)
+        
+        # Es una función (puede tener funciones anidadas)
+        function_name, params = functions_with_params[0]
+        return self._create_transformation_expr_with_nesting(function_name, params, column_meta.data_type, df)
+    
+    def _create_transformation_expr_with_nesting(self, function_name: str, params: List[str], data_type: str, df):
+        """
+        Crea expresión de transformación con soporte para funciones anidadas
+        Procesa recursivamente las funciones internas
+        """
+        self.logger.info(f"Aplicando transformación: {function_name} con parámetros: {params}")
+        
+        # Procesar parámetros: pueden ser columnas simples, literales o funciones anidadas
+        processed_params = []
+        
+        for param in params:
+            param = param.strip()
+            
+            # Verificar si el parámetro es una función anidada
+            if param.startswith('fn_transform_'):
+                # Es una función anidada, parsearla y procesarla recursivamente
+                nested_functions = self.parser.parse_transformation(param)
+                if nested_functions and nested_functions[0][0] != 'simple_column':
+                    nested_function_name, nested_params = nested_functions[0]
+                    # Llamada recursiva
+                    nested_expr = self._create_transformation_expr_with_nesting(
+                        nested_function_name, 
+                        nested_params, 
+                        'string',  # tipo temporal
+                        df
+                    )
+                    processed_params.append(nested_expr)
+                else:
+                    # Si no se puede parsear, usar como literal
+                    processed_params.append(lit(param))
+            else:
+                # Es una columna simple o literal
+                if param in df.columns:
+                    processed_params.append(col(param))
+                else:
+                    # Es un literal
+                    processed_params.append(param)  # Mantener como string para procesamiento posterior
+        
+        # Aplicar la función con los parámetros procesados
+        return self._apply_transformation_function(function_name, processed_params, data_type)
+    
+    def _apply_transformation_function(self, function_name: str, params: List, data_type: str):
+        """
+        Aplica la función de transformación con parámetros ya procesados
+        Los params pueden ser expresiones de PySpark o strings literales
+        """
+        if function_name == 'fn_transform_Concatenate':
+            # Convertir strings a lit() si es necesario
+            spark_params = []
+            for p in params:
+                if isinstance(p, str):
+                    spark_params.append(lit(p))
+                else:
+                    spark_params.append(p)
+            
+            return concat_ws("|", *[coalesce(
+                when(p.isNull(), lit("")).otherwise(
+                    when(trim(p.cast(StringType())) == "", lit("")).otherwise(trim(p.cast(StringType())))
+                ) if hasattr(p, 'isNull') else lit(str(p)), 
+                lit("")
+            ) for p in spark_params])
+        
+        elif function_name == 'fn_transform_ClearString':
+            if not params:
+                raise TransformationException("fn_transform_ClearString", "Requiere nombre de columna")
+            origin_param = params[0]
+            
+            if isinstance(origin_param, str):
+                origin_param = col(origin_param)
+            
+            if len(params) > 1:
+                default = params[1]
+                if isinstance(default, str) and default.startswith('$'):
+                    default_expr = lit(default[1:])
+                elif isinstance(default, str):
+                    default_expr = col(default)
+                else:
+                    default_expr = default
+                
+                return when(
+                    origin_param.isNull() | 
+                    (trim(origin_param) == "") |
+                    (trim(origin_param).isin(["None", "NULL", "null"])),
+                    default_expr
+                ).otherwise(trim(origin_param))
+            else:
+                return when(
+                    origin_param.isNull() |
+                    (trim(origin_param) == "") |
+                    (trim(origin_param).isin(["None", "NULL", "null"])),
+                    lit(None).cast(StringType())
+                ).otherwise(trim(origin_param))
+        
+        elif function_name == 'fn_transform_DateMagic':
+            if len(params) < 2:
+                raise TransformationException("fn_transform_DateMagic", "Requiere al menos 2 parámetros")
+            
+            origin_param = params[0]
+            date_format_param = params[1]
+            default_value = params[2] if len(params) > 2 else '1900-01-01'
+            
+            # Convertir a expresión si es string
+            if isinstance(origin_param, str):
+                origin_param = col(origin_param)
+            
+            # Extraer formato
+            if isinstance(date_format_param, str):
+                date_format_str = date_format_param
+            else:
+                date_format_str = 'yyyy-MM-dd'
+            
+            # Extraer default
+            if isinstance(default_value, str):
+                default_value_lit = lit(default_value)
+            else:
+                default_value_lit = default_value
+            
+            # Mapeo de formatos
+            format_mapping = {
+                'yyyy-MM-dd': 'yyyy-MM-dd',
+                'yyyyMMdd': 'yyyyMMdd',
+                'dd/MM/yyyy': 'dd/MM/yyyy',
+                'MM/dd/yyyy': 'MM/dd/yyyy'
+            }
+            
+            spark_format = format_mapping.get(date_format_str, 'yyyy-MM-dd')
+            
+            return coalesce(
+                to_date(origin_param.cast(StringType()), spark_format),
+                to_date(default_value_lit, 'yyyy-MM-dd')
+            )
+        
+        elif function_name == 'fn_transform_Concatenate_ws':
+            if len(params) < 2:
+                raise TransformationException("fn_transform_Concatenate_ws", "Requiere al menos 2 parámetros")
+            
+            separator = params[-1] if isinstance(params[-1], str) else "|"
+            columns_to_concat = params[:-1]
+            
+            spark_params = []
+            for p in columns_to_concat:
+                if isinstance(p, str):
+                    spark_params.append(col(p))
+                else:
+                    spark_params.append(p)
+            
+            return concat_ws(separator, *[coalesce(trim(c.cast(StringType())), lit("")) for c in spark_params])
+        
+        elif function_name in ['fn_transform_Integer', 'fn_transform_Double', 'fn_transform_Numeric', 'fn_transform_Boolean']:
+            if not params:
+                raise TransformationException(function_name, "Requiere nombre de columna")
+            
+            origin_param = params[0]
+            if isinstance(origin_param, str):
+                origin_param = col(origin_param)
+            
+            type_map = {
+                'fn_transform_Integer': IntegerType(),
+                'fn_transform_Double': DoubleType(),
+                'fn_transform_Boolean': BooleanType()
+            }
+            
+            if function_name == 'fn_transform_Numeric':
+                target_type = self._parse_decimal_type(data_type)
+            else:
+                target_type = type_map[function_name]
+            
+            return coalesce(origin_param.cast(target_type), lit(None).cast(target_type))
+        
+        elif function_name == 'fn_transform_Datetime':
+            if not params:
+                return current_timestamp()
+            origin_param = params[0] if not isinstance(params[0], str) else col(params[0])
+            return coalesce(to_timestamp(origin_param), lit(None).cast(TimestampType()))
+        
+        elif function_name == 'fn_transform_DatetimeMagic':
+            if len(params) < 3:
+                raise TransformationException("fn_transform_DatetimeMagic", "Requiere 3 parámetros")
+            
+            date_param = params[0] if not isinstance(params[0], str) else col(params[0])
+            time_param = params[1] if not isinstance(params[1], str) else col(params[1])
+            format_param = params[2] if isinstance(params[2], str) else 'yyyy-MM-dd HH:mm:ss'
+            default_value = params[3] if len(params) > 3 else '1900-01-01 00:00:01'
+            
+            datetime_str = concat(date_param.cast(StringType()), lit(' '), time_param.cast(StringType()))
+            
+            return coalesce(
+                to_timestamp(datetime_str, 'yyyy-MM-dd HH:mm:ss'),
+                to_timestamp(lit(default_value), 'yyyy-MM-dd HH:mm:ss')
+            )
+        
+        elif function_name == 'fn_transform_Date_to_String':
+            if len(params) < 2:
+                raise TransformationException("fn_transform_Date_to_String", "Requiere 2 parámetros")
+            
+            date_param = params[0]
+            format_param = params[1] if isinstance(params[1], str) else 'yyyyMM'
+            
+            # Si es string, convertir a columna y luego a Date
+            if isinstance(date_param, str):
+                date_param = to_date(col(date_param))
+            # Si ya es una expresión de Spark, usarla directamente
+            # (viene de DateMagic y ya es tipo Date)
+            
+            return date_format(date_param, format_param)
+        
+        elif function_name == 'fn_transform_PeriodMagic':
+            """
+            Crea un período en formato YYYYMM combinando ejercicio y periodo
+            Params: [period_column, ejercicio_column]
+            Ejemplo: fn_transform_PeriodMagic(mescuota,anyocuota) -> '202501'
+            """
+            if len(params) < 2:
+                raise TransformationException("fn_transform_PeriodMagic", "Requiere 2 parámetros: period, ejercicio")
+            
+            period_param = params[0]
+            ejercicio_param = params[1]
+            
+            # Convertir a columnas si son strings
+            if isinstance(period_param, str):
+                period_param = col(period_param)
+            if isinstance(ejercicio_param, str):
+                ejercicio_param = col(ejercicio_param)
+            
+            # Concatenar año + mes con padding
+            return when(
+                period_param.isNull() | ejercicio_param.isNull(),
+                lit('190001')
+            ).otherwise(
+                concat(
+                    ejercicio_param.cast(StringType()), 
+                    lpad(period_param.cast(StringType()), 2, '0')
+                )
+            )
+
+        elif function_name == 'fn_transform_ByteMagic':
+            """
+            Convierte valores byte/binarios a 'T' o 'F'
+            Params: [origin_column, default_value]
+            Valores: 0x46='F', 0x54='T', o ya convertidos 'F'/'T'
+            """
+            if len(params) < 1:
+                raise TransformationException("fn_transform_ByteMagic", "Requiere al menos 1 parámetro")
+            
+            origin_param = params[0]
+            default_value = params[1] if len(params) > 1 else '$F'
+            
+            # Convertir a columna si es string
+            if isinstance(origin_param, str):
+                origin_param = col(origin_param)
+            
+            # Extraer el valor por defecto
+            if isinstance(default_value, str) and default_value.startswith('$'):
+                default_lit = lit(default_value[1:])
+            elif isinstance(default_value, str):
+                default_lit = col(default_value)
+            else:
+                default_lit = default_value
+            
+            # Crear la expresión de conversión
+            # Maneja múltiples formatos: bytes binarios, hex string, o ya convertido
+            return when(origin_param.isNull(), default_lit) \
+                .when(origin_param == lit('T'), lit('T')) \
+                .when(origin_param == lit('F'), lit('F')) \
+                .when(origin_param.cast(StringType()) == '0x54', lit('T')) \
+                .when(origin_param.cast(StringType()) == '0x46', lit('F')) \
+                .when(origin_param == lit(84), lit('T')) \
+                .when(origin_param == lit(70), lit('F')) \
+                .otherwise(default_lit)
+
+        elif function_name == 'fn_transform_Case':
+            """
+            Aplica transformación de casos sin valor por defecto
+            Params: [origin_column, rule1, rule2, ...]
+            Formato de reglas: 'value1|value2->label'
+            Ejemplo: fn_transform_Case(estado, 001|002->Activo, 003->Inactivo)
+            """
+            if len(params) < 2:
+                raise TransformationException("fn_transform_Case", "Requiere al menos 2 parámetros")
+            
+            origin_param = params[0]
+            rules = params[1:]
+            
+            # Convertir a columna si es string
+            if isinstance(origin_param, str):
+                origin_param = col(origin_param)
+            
+            # Construir la expresión de casos
+            case_expr = origin_param  # valor original por defecto
+            
+            for rule in rules:
+                if isinstance(rule, str) and '->' in rule:
+                    value_case, label_case = rule.split('->')
+                    values_to_change = [v.strip() for v in value_case.split('|')]
+                    
+                    # Aplicar el when para estos valores
+                    case_expr = when(
+                        origin_param.isin(values_to_change), 
+                        lit(label_case.strip())
+                    ).otherwise(case_expr)
+            
+            return case_expr
+
+        elif function_name == 'fn_transform_Case_with_default':
+            """
+            Aplica transformación de casos CON valor por defecto
+            Params: [origin_column, rule1, rule2, ..., default_value]
+            Formato de reglas: 'value1|value2->label' o 'value1&value2->label' (para múltiples columnas)
+            Ejemplo: fn_transform_Case_with_default(linea&familia, 03&003->T, $F)
+            """
+            if len(params) < 2:
+                raise TransformationException("fn_transform_Case_with_default", "Requiere al menos 2 parámetros")
+            
+            origin_param = params[0]
+            default_value = params[-1]
+            rules = params[1:-1] if len(params) > 2 else []
+            
+            # Extraer el valor por defecto
+            if isinstance(default_value, str) and default_value.startswith('$'):
+                default_expr = lit(default_value[1:])
+            elif isinstance(default_value, str):
+                default_expr = col(default_value)
+            else:
+                default_expr = default_value
+            
+            # Inicializar con el valor por defecto
+            case_expr = default_expr
+            
+            # Verificar si origin_param tiene múltiples columnas (con &)
+            if isinstance(origin_param, str) and '&' in origin_param:
+                # Caso especial: múltiples columnas
+                conditions = [c.strip() for c in origin_param.split('&')]
+                
+                for rule in rules:
+                    if isinstance(rule, str) and '->' in rule:
+                        value_case, label_case = rule.split('->')
+                        values_to_change = [v.strip() for v in value_case.split('|')]
+                        
+                        # Construir condición compuesta para cada valor
+                        combined_condition = None
+                        
+                        for value in values_to_change:
+                            value_separated = value.split('&')
+                            
+                            # Crear condición para este conjunto de valores
+                            sub_condition = None
+                            for i, col_name in enumerate(conditions):
+                                if i < len(value_separated):
+                                    if sub_condition is None:
+                                        sub_condition = (col(col_name) == lit(value_separated[i].strip()))
+                                    else:
+                                        sub_condition = sub_condition & (col(col_name) == lit(value_separated[i].strip()))
+                            
+                            # Combinar con OR
+                            if combined_condition is None:
+                                combined_condition = sub_condition
+                            else:
+                                combined_condition = combined_condition | sub_condition
+                        
+                        # Aplicar la regla
+                        if combined_condition is not None:
+                            case_expr = when(combined_condition, lit(label_case.strip())).otherwise(case_expr)
+            
+            else:
+                # Caso simple: una sola columna
+                if isinstance(origin_param, str):
+                    origin_param = col(origin_param)
+                
+                for rule in rules:
+                    if isinstance(rule, str) and '->' in rule:
+                        value_case, label_case = rule.split('->')
+                        values_to_change = [v.strip() for v in value_case.split('|')]
+                        
+                        case_expr = when(
+                            origin_param.isin(values_to_change), 
+                            lit(label_case.strip())
+                        ).otherwise(case_expr)
+            
+            return case_expr
+        
+        else:
+            raise TransformationException(function_name, f"Función no soportada: {function_name}")
     
     def _get_spark_type(self, data_type: str):
         """Convierte string de tipo a tipo Spark"""
@@ -734,271 +1135,16 @@ class TransformationEngine:
         
         return type_mapping.get(data_type.lower(), StringType())
     
-    def _build_transformation_expression(self, column_meta: ColumnMetadata):
-        """Construye expresión de transformación para una columna"""
-        functions_with_params = self.parser.parse_transformation(column_meta.transformation)
-        
-        if not functions_with_params:
-            return None
-        
-        if len(functions_with_params) == 1 and functions_with_params[0][0] == 'simple_column':
-            # Es una columna simple
-            column_name = functions_with_params[0][1][0] if functions_with_params[0][1] else column_meta.name
-            return col(column_name)
-        
-        # Es una función
-        function_name, params = functions_with_params[0]
-        return self._create_transformation_expr(function_name, params, column_meta.data_type)
+    def _parse_decimal_type(self, data_type: str):
+        """Parse decimal type from string like 'numeric(13,2)'"""
+        import re
+        match = re.search(r'numeric\((\d+),(\d+)\)', data_type.lower())
+        if match:
+            precision = int(match.group(1))
+            scale = int(match.group(2))
+            return DecimalType(precision, scale)
+        return DecimalType(18, 2)
     
-    def _create_transformation_expr(self, function_name: str, params: List[str], data_type: str):
-        """Crea expresión de transformación para función específica"""
-        self.logger.info(f"Aplicando transformación: {function_name} con parámetros: {params} y tipo: {data_type}")
-        param_list = params if params else []
-        
-        if function_name == 'fn_transform_Concatenate':
-            columns_to_concat = [col(p.strip()) for p in param_list]
-            return concat_ws("|", *[coalesce(trim(c), lit("")) for c in columns_to_concat])
-        
-        elif function_name == 'fn_transform_Concatenate_ws':
-            if len(param_list) < 2:
-                raise TransformationException("fn_transform_Concatenate_ws", "Requiere al menos 2 parámetros")
-            separator = param_list[-1]
-            columns_to_concat = [col(p.strip()) for p in param_list[:-1]]
-            return concat_ws(separator, *[coalesce(trim(c), lit("")) for c in columns_to_concat])
-        
-        elif function_name == 'fn_transform_Integer':
-            if not param_list:
-                raise TransformationException("fn_transform_Integer", "Requiere nombre de columna")
-            origin_column = param_list[0]
-            
-            # Versión ultra-simple
-            return coalesce(
-                col(origin_column).cast(IntegerType()),
-                lit(None).cast(IntegerType())
-            )
-
-        elif function_name == 'fn_transform_Double':
-            if not param_list:
-                raise TransformationException("fn_transform_Double", "Requiere nombre de columna")
-            origin_column = param_list[0]
-            
-            # Versión ultra-simple
-            return coalesce(
-                col(origin_column).cast(DoubleType()),
-                lit(None).cast(DoubleType())
-            )
-
-        elif function_name == 'fn_transform_Numeric':
-            if not param_list:
-                raise TransformationException("fn_transform_Numeric", "Requiere nombre de columna")
-            origin_column = param_list[0]
-            
-            decimal_type = self._parse_decimal_type(data_type)
-            
-            # Versión ultra-simple
-            return coalesce(
-                col(origin_column).cast(decimal_type),
-                lit(None).cast(decimal_type)
-            )
-
-        elif function_name == 'fn_transform_Boolean':
-            if not param_list:
-                raise TransformationException("fn_transform_Boolean", "Requiere nombre de columna")
-            origin_column = param_list[0]
-            
-            # Versión ultra-simple usando coalesce como los demás
-            return coalesce(
-                col(origin_column).cast(BooleanType()),
-                lit(None).cast(BooleanType())
-            )
-        
-        elif function_name == 'fn_transform_ClearString':
-            origin_column = param_list[0] if param_list else None
-            if not origin_column:
-                raise TransformationException("fn_transform_ClearString", "Requiere nombre de columna")
-            
-            if len(param_list) > 1:
-                default = param_list[1]
-                # Si el default empieza con $, es un literal
-                if default.startswith('$'):
-                    default_expr = lit(default[1:])  # Remover el $
-                else:
-                    default_expr = col(default)
-                
-                return when(
-                    col(origin_column).isNull() | 
-                    (trim(col(origin_column)) == "") |
-                    (trim(col(origin_column)).isin(["None", "NULL", "null"])),  # MÁS CASOS
-                    default_expr
-                ).otherwise(trim(col(origin_column)))
-            else:
-                # Sin valor por defecto - devolver NULL real para valores vacíos/nulos
-                return when(
-                    col(origin_column).isNull() |
-                    (trim(col(origin_column)) == "") |
-                    (trim(col(origin_column)).isin(["None", "NULL", "null"])),  # MÁS CASOS
-                    lit(None).cast(StringType())
-                ).otherwise(
-                    trim(col(origin_column))
-                )
-        
-        elif function_name == 'fn_transform_DateMagic':
-            if len(param_list) < 3:
-                raise TransformationException(function_name, "Requiere 3 parámetros: column, format, default")
-            
-            origin_column = param_list[0]
-            date_format_param = param_list[1]
-            value_default = param_list[2]
-
-            date_pattern = r'^([7-9]\d{5}|[1-2]\d{6}|3[0-5]\d{5})$'
-
-            return when(
-                regexp_extract(col(origin_column).cast(StringType()), date_pattern, 1) != "",
-                to_date(
-                    date_add(
-                        to_date(lit(BASE_DATE_MAGIC)), 
-                        col(origin_column).cast(IntegerType()) - lit(MAGIC_OFFSET)
-                    ),
-                    date_format_param
-                )
-            ).otherwise(
-                to_date(lit(value_default), date_format_param)
-            ).cast(DateType())
-
-
-        elif function_name == 'fn_transform_DatetimeMagic':
-            if len(param_list) < 4:
-                raise TransformationException(function_name, "Requiere 4 parámetros: column_date, column_time, format, default")
-            
-            origin_column_date = param_list[0]
-            origin_column_time = param_list[1]
-            datetime_format = param_list[2]
-            value_default = param_list[3]
-
-            date_pattern = r'^([7-9]\d{5}|[1-2]\d{6}|3[0-5]\d{5})$'
-            time_pattern = r'^([01][0-9]|2[0-3])([0-5][0-9])([0-5][0-9])$'
-
-            return when(
-                regexp_extract(col(origin_column_date).cast(StringType()), date_pattern, 1) != "",
-                when(
-                    regexp_extract(col(origin_column_time).cast(StringType()), time_pattern, 1) != "",
-                    to_timestamp(
-                        concat_ws(" ", 
-                            to_date(
-                                date_add(
-                                    to_date(lit(BASE_DATE_MAGIC)), 
-                                    col(origin_column_date).cast(IntegerType()) - lit(MAGIC_OFFSET)
-                                )
-                            ),
-                            concat_ws(
-                                ":", 
-                                col(origin_column_time).substr(1, 2),
-                                col(origin_column_time).substr(3, 2),
-                                col(origin_column_time).substr(5, 2)
-                            )
-                        ),
-                        datetime_format
-                    )
-                ).otherwise(
-                    to_timestamp(
-                        date_add(
-                            to_date(lit(BASE_DATE_MAGIC)), 
-                            col(origin_column_date).cast(IntegerType()) - lit(MAGIC_OFFSET)
-                        ),
-                        datetime_format[:8]  # solo fecha
-                    )
-                )
-            ).otherwise(
-                to_timestamp(lit(value_default), datetime_format[:8])
-            ).cast(TimestampType())
-        
-        elif function_name == 'fn_transform_Datetime':
-            # Verificar parámetros mínimos
-            if len(param_list) < 1:
-                # Sin parámetros - usar timestamp actual
-                return from_utc_timestamp(current_timestamp(), "America/Lima")
-            
-            origin_column = param_list[0]
-            
-            # Si el primer parámetro es vacío o NULL, usar timestamp actual
-            if not origin_column or origin_column.upper() in ['NULL', 'NONE', '']:
-                return from_utc_timestamp(current_timestamp(), "America/Lima")
-            
-            # Obtener formato y valor por defecto
-            date_format_param = param_list[1] if len(param_list) > 1 else "yyyy-MM-dd HH:mm:ss"
-            value_default = param_list[2] if len(param_list) > 2 else None
-            
-            # Crear valor por defecto
-            if value_default and value_default.upper() not in ['NULL', 'NONE', '']:
-                try:
-                    default_expr = to_timestamp(lit(value_default), date_format_param)
-                except:
-                    default_expr = lit(None).cast(TimestampType())
-            else:
-                # Si especifica NULL o no hay default, usar null
-                default_expr = lit(None).cast(TimestampType())
-            
-            # Versión simplificada usando coalesce
-            return coalesce(
-                # Intentar convertir con el formato especificado
-                to_timestamp(col(origin_column), date_format_param),
-                # Si falla, usar valor por defecto
-                default_expr
-            )
-        
-        elif function_name == 'fn_transform_Date':
-            # Verificar parámetros mínimos
-            if len(param_list) < 1:
-                # Sin parámetros - usar fecha actual
-                return current_date()
-            
-            origin_column = param_list[0]
-            
-            # Si el primer parámetro es vacío o NULL, usar fecha actual
-            if not origin_column or origin_column.upper() in ['NULL', 'NONE', '']:
-                return current_date()
-            
-            # Obtener formato y valor por defecto
-            date_format_param = param_list[1] if len(param_list) > 1 else "yyyy-MM-dd"
-            value_default = param_list[2] if len(param_list) > 2 else None
-            
-            # Crear valor por defecto
-            if value_default and value_default.upper() not in ['NULL', 'NONE', '']:
-                try:
-                    default_expr = to_date(lit(value_default), date_format_param)
-                except:
-                    default_expr = lit(None).cast(DateType())
-            else:
-                # Si especifica NULL o no hay default, usar null
-                default_expr = lit(None).cast(DateType())
-            
-            # Detectar si es timestamp Unix en millisegundos y convertir a fecha
-            return coalesce(
-                when(
-                    # Es un número (timestamp Unix en millisegundos)
-                    col(origin_column).cast(StringType()).rlike("^\\d{10,13}$"),
-                    # Convertir de millisegundos Unix a fecha
-                    to_date((col(origin_column).cast("bigint") / 1000).cast(TimestampType()))
-                ).otherwise(
-                    # Intentar convertir con el formato especificado
-                    to_date(col(origin_column), date_format_param)
-                ),
-                # Si falla, usar valor por defecto
-                default_expr
-            )
-        else:
-            raise TransformationException(function_name, f"Función no soportada: {function_name}")
-    
-    def _parse_decimal_type(self, data_type: str) -> DecimalType:
-        """Parsea tipo decimal desde string"""
-        if isinstance(data_type, str) and "numeric" in data_type.lower():
-            match = re.search(r'numeric\((\d+),(\d+)\)', data_type.lower())
-            if match:
-                precision = int(match.group(1))
-                scale = int(match.group(2))
-                return DecimalType(precision, scale)
-        return DecimalType(38, 12)  # Default
-
 class DeltaTableManager:
     """Maneja operaciones con tablas Delta"""
     
