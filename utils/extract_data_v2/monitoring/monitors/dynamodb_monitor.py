@@ -143,7 +143,7 @@ class DynamoDBMonitor(MonitorInterface):
             
             process_id = self.dynamo_logger.log_warning(
                 table_name=table_name,
-                message=warning_message,
+                warning_message=warning_message,
                 job_name="extract_data",
                 context=context
             )
