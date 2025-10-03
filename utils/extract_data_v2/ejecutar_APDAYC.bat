@@ -13,4 +13,5 @@ for /f %%T in (tables.txt) do (
     python main.py --table-name %%T
 )
 
+python execute_stage.py --process-id=10 --instance=PE --endpoint PEBDDATA2
 pause
