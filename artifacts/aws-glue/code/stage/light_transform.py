@@ -753,11 +753,15 @@ class TransformationEngine:
                 nested_functions = self.parser.parse_transformation(param)
                 if nested_functions and nested_functions[0][0] != 'simple_column':
                     nested_function_name, nested_params = nested_functions[0]
+
+                    # CAMBIO 1: Determinar el tipo correcto basado en la función
+                    nested_type = self._infer_function_return_type(nested_function_name)
+                
                     # Llamada recursiva
                     nested_expr = self._create_transformation_expr_with_nesting(
                         nested_function_name, 
                         nested_params, 
-                        'string',  # tipo temporal
+                        nested_type,  # tipo temporal
                         df
                     )
                     processed_params.append(nested_expr)
@@ -775,6 +779,29 @@ class TransformationEngine:
         # Aplicar la función con los parámetros procesados
         return self._apply_transformation_function(function_name, processed_params, data_type)
     
+    def _infer_function_return_type(self, function_name: str) -> str:
+        """
+        Infiere el tipo de retorno de una función de transformación
+        """
+        type_mapping = {
+            'fn_transform_DateMagic': 'date',
+            'fn_transform_DatetimeMagic': 'timestamp',
+            'fn_transform_Datetime': 'timestamp',
+            'fn_transform_Integer': 'integer',
+            'fn_transform_Double': 'double',
+            'fn_transform_Numeric': 'double',
+            'fn_transform_Boolean': 'boolean',
+            'fn_transform_PeriodMagic': 'string',
+            'fn_transform_ByteMagic': 'string',
+            'fn_transform_ClearString': 'string',
+            'fn_transform_Concatenate': 'string',
+            'fn_transform_Concatenate_ws': 'string',
+            'fn_transform_Date_to_String': 'string',
+            'fn_transform_Case': 'string',
+            'fn_transform_Case_with_default': 'string',
+        }
+        return type_mapping.get(function_name, 'string')
+
     def _apply_transformation_function(self, function_name: str, params: List, data_type: str):
         """
         Aplica la función de transformación con parámetros ya procesados
@@ -833,7 +860,7 @@ class TransformationEngine:
             
             origin_param = params[0]
             date_format_param = params[1]
-            default_value = params[2] if len(params) > 2 else '1900-01-01'
+            default_value = params[2] if len(params) > 2 else 'to_null'
             
             # Convertir a expresión si es string
             if isinstance(origin_param, str):
@@ -847,9 +874,19 @@ class TransformationEngine:
             
             # Extraer default
             if isinstance(default_value, str):
-                default_value_lit = lit(default_value)
+                if default_value.lower() == 'to_null':
+                    default_value_lit = lit(None).cast(DateType())
+                else:
+                    default_value_lit = lit(default_value)
             else:
                 default_value_lit = default_value
+            
+            # Crear expresión para fecha desde número mágico
+            # Si el valor cast a entero es > 100000, asumimos que es un número mágico
+            magic_date_expr = date_add(
+                to_date(lit('1900-01-01')), 
+                (origin_param.cast(IntegerType()) - lit(MAGIC_OFFSET))
+            )
             
             # Mapeo de formatos
             format_mapping = {
@@ -858,12 +895,25 @@ class TransformationEngine:
                 'dd/MM/yyyy': 'dd/MM/yyyy',
                 'MM/dd/yyyy': 'MM/dd/yyyy'
             }
-            
             spark_format = format_mapping.get(date_format_str, 'yyyy-MM-dd')
             
-            return coalesce(
-                to_date(origin_param.cast(StringType()), spark_format),
-                to_date(default_value_lit, 'yyyy-MM-dd')
+            # Estrategia de conversión con múltiples intentos:
+            # 1. Si es número > 100000, es número mágico
+            # 2. Si no, intentar parsear como string con formato
+            # 3. Si falla, usar valor por defecto
+            return when(
+                origin_param.isNull(),
+                to_date(default_value_lit, 'yyyy-MM-dd') if default_value.lower() != 'to_null' else lit(None).cast(DateType())
+            ).when(
+                # Detectar número mágico: es numérico y mayor a 100000
+                origin_param.cast(IntegerType()).isNotNull() & (origin_param.cast(IntegerType()) > lit(100000)),
+                magic_date_expr
+            ).otherwise(
+                # Intentar parsear como fecha con formato
+                coalesce(
+                    to_date(origin_param.cast(StringType()), spark_format),
+                    to_date(default_value_lit, 'yyyy-MM-dd') if default_value.lower() != 'to_null' else lit(None).cast(DateType())
+                )
             )
         
         elif function_name == 'fn_transform_Concatenate_ws':
@@ -910,20 +960,106 @@ class TransformationEngine:
             return coalesce(to_timestamp(origin_param), lit(None).cast(TimestampType()))
         
         elif function_name == 'fn_transform_DatetimeMagic':
+            """
+            Convierte fechas y horas mágicas (números de Visual FoxPro) a timestamp
+            Params: [date_column, time_column, format, default_value (opcional)]
+            
+            Ejemplos de valores origen:
+            - date_column: "739062" (número mágico) o "2024-06-25" (string)
+            - time_column: "070000" (HHMMSS como número o string)
+            - format: "yyyy-MM-dd HH:mm:ss"
+            - default_value: "to_null" (opcional, por defecto retorna null)
+            """
             if len(params) < 3:
-                raise TransformationException("fn_transform_DatetimeMagic", "Requiere 3 parámetros")
+                raise TransformationException("fn_transform_DatetimeMagic", "Requiere al menos 3 parámetros")
             
-            date_param = params[0] if not isinstance(params[0], str) else col(params[0])
-            time_param = params[1] if not isinstance(params[1], str) else col(params[1])
+            date_param = params[0]
+            time_param = params[1]
             format_param = params[2] if isinstance(params[2], str) else 'yyyy-MM-dd HH:mm:ss'
-            default_value = params[3] if len(params) > 3 else '1900-01-01 00:00:01'
+            default_value = params[3] if len(params) > 3 else 'to_null'
             
-            datetime_str = concat(date_param.cast(StringType()), lit(' '), time_param.cast(StringType()))
+            # Convertir a expresiones si son strings
+            if isinstance(date_param, str):
+                date_param = col(date_param)
+            if isinstance(time_param, str):
+                time_param = col(time_param)
             
-            return coalesce(
-                to_timestamp(datetime_str, 'yyyy-MM-dd HH:mm:ss'),
-                to_timestamp(lit(default_value), 'yyyy-MM-dd HH:mm:ss')
+            # ============================================================
+            # PASO 1: Convertir date_param a fecha (puede ser número mágico o string)
+            # ============================================================
+            
+            # Detectar si es número mágico: valor numérico > 100000
+            date_from_magic = date_add(
+                to_date(lit('1900-01-01')), 
+                (date_param.cast(IntegerType()) - lit(MAGIC_OFFSET))
             )
+            
+            # Intentar parsear como string con formato
+            date_from_string = to_date(date_param.cast(StringType()), 'yyyy-MM-dd')
+            
+            # Estrategia: si es número > 100000, usar conversión mágica; sino, parsear como string
+            converted_date = when(
+                date_param.isNull(),
+                lit(None).cast(DateType())
+            ).when(
+                # Es número mágico
+                date_param.cast(IntegerType()).isNotNull() & (date_param.cast(IntegerType()) > lit(100000)),
+                date_from_magic
+            ).otherwise(
+                # Es string de fecha
+                date_from_string
+            )
+            
+            # ============================================================
+            # PASO 2: Convertir time_param a formato HH:mm:ss
+            # ============================================================
+            
+            # El time_param puede venir como:
+            # - "070000" (string HHMMSS)
+            # - 70000 (número HHMMSS)
+            # - "07:00:00" (ya formateado)
+            
+            # Normalizar a 6 dígitos con padding de ceros a la izquierda
+            time_normalized = lpad(time_param.cast(StringType()), 6, '0')
+            
+            # Extraer HH, MM, SS
+            hours = substring(time_normalized, 1, 2)
+            minutes = substring(time_normalized, 3, 2)
+            seconds = substring(time_normalized, 5, 2)
+            
+            # Construir string de tiempo en formato HH:mm:ss
+            time_string = concat_ws(':', hours, minutes, seconds)
+            
+            # ============================================================
+            # PASO 3: Combinar fecha y hora en timestamp
+            # ============================================================
+            
+            # Concatenar fecha (como string) + espacio + hora
+            datetime_string = concat(
+                converted_date.cast(StringType()),
+                lit(' '),
+                time_string
+            )
+            
+            # Convertir a timestamp
+            result_timestamp = to_timestamp(datetime_string, 'yyyy-MM-dd HH:mm:ss')
+            
+            # ============================================================
+            # PASO 4: Aplicar valor por defecto si es nulo
+            # ============================================================
+            
+            # Si default_value es 'to_null', retornar null; sino, usar el valor especificado
+            if isinstance(default_value, str) and default_value.lower() == 'to_null':
+                return coalesce(
+                    result_timestamp,
+                    lit(None).cast(TimestampType())
+                )
+            else:
+                # Usar el valor por defecto especificado
+                return coalesce(
+                    result_timestamp,
+                    to_timestamp(lit(default_value), 'yyyy-MM-dd HH:mm:ss')
+                )
         
         elif function_name == 'fn_transform_Date_to_String':
             if len(params) < 2:
@@ -934,9 +1070,14 @@ class TransformationEngine:
             
             # Si es string, convertir a columna y luego a Date
             if isinstance(date_param, str):
-                date_param = to_date(col(date_param))
-            # Si ya es una expresión de Spark, usarla directamente
-            # (viene de DateMagic y ya es tipo Date)
+                # Es un string: debe ser nombre de columna (las funciones anidadas ya se procesaron antes)
+                if date_param in df.columns:
+                    date_param = to_date(col(date_param))
+                else:
+                    # Si no es una columna, intentar como fecha literal
+                    date_param = to_date(lit(date_param))
+            # Si NO es string, entonces ya es una expresión de Spark (viene de función anidada)
+            # y simplemente la usamos directamente - NO necesita conversión adicional
             
             return date_format(date_param, format_param)
         
