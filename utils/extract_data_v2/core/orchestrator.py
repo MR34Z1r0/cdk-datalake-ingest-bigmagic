@@ -405,15 +405,9 @@ class DataExtractionOrchestrator:
             # Registrar WARNING en DynamoDB
             if self.monitor:
                 self.monitor.log_warning(
-                    table_name=self.extraction_config.table_name,
-                    warning_message="No data extracted - Table is empty or no records match filter criteria",
-                    metadata={
-                        'strategy_used': self.strategy.get_strategy_name(),
-                        'execution_time_seconds': execution_time,
-                        'files_created': len(files_created),
-                        'start_time': start_time.isoformat(),
-                        'end_time': end_time.isoformat()
-                    }
+                    self.extraction_config.table_name,
+                    "No data extracted - Table is empty or no records match filter criteria",
+                    self._build_metadata()
                 )
             
             # Crear resultado con success=True pero indicando que fue warning
