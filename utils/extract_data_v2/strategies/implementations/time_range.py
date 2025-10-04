@@ -22,15 +22,17 @@ class TimeRangeStrategy(ExtractionStrategy):
         if self.watermark_storage:
             logger.info("⚠️  Watermark storage provided but not used in time range strategy")
         
+        # 🔧 CONSTRUIR TABLE NAME CON SCHEMA, TABLE (CON ALIAS) Y JOIN
         table_name_with_joins = f"{self.table_config.source_schema}.{self.table_config.source_table}"
         
+        # 🔧 AGREGAR JOIN_EXPR SI EXISTE
         if hasattr(self.table_config, 'join_expr') and self.table_config.join_expr and self.table_config.join_expr.strip():
             table_name_with_joins += f" {self.table_config.join_expr.strip()}"
             logger.info(f"Added JOIN expression: {self.table_config.join_expr.strip()}")
-    
+        
         # Crear parámetros básicos
         params = ExtractionParams(
-            table_name=table_name_with_joins(),
+            table_name=table_name_with_joins,
             columns=self._parse_columns(),
             metadata=self._build_basic_metadata()
         )
@@ -46,11 +48,9 @@ class TimeRangeStrategy(ExtractionStrategy):
             params.add_where_condition(f"({filter_exp})")
             logger.info(f"Added filter expression: {filter_exp}")
         
-        # 🔧 AGREGAR ORDER BY SI EXISTE FILTER_COLUMN
-        if hasattr(self.table_config, 'filter_column') and self.table_config.filter_column and self.table_config.filter_column.strip():
-            params.order_by = self.table_config.filter_column.strip()
-            logger.info(f"Added ORDER BY: {params.order_by}")
-            
+        # 🔧 NO AGREGAR ORDER BY AQUÍ - se agrega en el adapter cuando se construye el query
+        # El adapter usa chunk_column para ORDER BY si existe chunking
+        
         # Configurar chunking si es apropiado
         if self._should_use_chunking():
             params.chunk_size = self.extraction_config.chunk_size
@@ -58,6 +58,7 @@ class TimeRangeStrategy(ExtractionStrategy):
             logger.info(f"Chunking enabled - Size: {params.chunk_size}, Column: {params.chunk_column}")
         
         logger.info(f"Time range extraction params built - Columns: {len(params.columns)}, Where conditions: {len(params.where_conditions)}")
+        logger.info(f"Final table_name with JOINs: {table_name_with_joins}")
         logger.info("=== END TIME RANGE STRATEGY ===")
         
         return params
@@ -90,40 +91,20 @@ class TimeRangeStrategy(ExtractionStrategy):
         validation_errors.extend(time_range_errors)
         
         if validation_errors:
-            logger.error("❌ VALIDATION FAILED:")
             for error in validation_errors:
-                logger.error(f"  - {error}")
+                logger.error(f"  ❌ {error}")
+            logger.error("=== VALIDATION FAILED ===")
             return False
         
         logger.info("✅ ALL VALIDATION CHECKS PASSED")
         logger.info("=== END VALIDATION ===")
         return True
-    
-    def estimate_resources(self) -> dict:
-        """Estima recursos para carga por rango de tiempo"""
-        base_estimate = super().estimate_resources()
-        
-        # Time range puede variar en tamaño dependiendo del rango
-        base_estimate.update({
-            'estimated_memory_mb': 750,
-            'supports_chunking': self._should_use_chunking(),
-            'parallel_safe': True,
-            'strategy_complexity': 'medium'
-        })
-        
-        return base_estimate
-    
+
     def _build_time_range_filters(self) -> List[str]:
-        """Construye filtros específicos para rango de tiempo con detección automática"""
+        """Construye los filtros de rango de tiempo (explícito o dinámico)"""
         filters = []
         
-        # Filtro básico de la configuración
-        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp:
-            clean_filter = self.table_config.filter_exp.replace('"', '').strip()
-            if clean_filter:
-                filters.append(clean_filter)
-        
-        # DETECCIÓN AUTOMÁTICA DEL TIPO DE RANGO
+        # Verificar configuraciones de rango disponibles
         has_explicit_range = (
             hasattr(self.table_config, 'start_value') and self.table_config.start_value and
             hasattr(self.table_config, 'end_value') and self.table_config.end_value and
@@ -262,6 +243,15 @@ class TimeRangeStrategy(ExtractionStrategy):
         """Obtiene la columna para chunking en time range"""
         if hasattr(self.table_config, 'partition_column') and self.table_config.partition_column:
             return self.table_config.partition_column.strip()
+        
+        # Usar filter_column pero extraer solo el nombre de la columna
+        if hasattr(self.table_config, 'filter_column') and self.table_config.filter_column:
+            filter_col_raw = self.table_config.filter_column.strip()
+            # Si contiene 'between', tomar solo la parte antes de 'between'
+            if 'between' in filter_col_raw.lower():
+                return filter_col_raw.split('between')[0].strip()
+            else:
+                return filter_col_raw.split()[0].strip()
         
         if hasattr(self.table_config, 'id_column') and self.table_config.id_column:
             return self.table_config.id_column.strip()
