@@ -22,9 +22,15 @@ class TimeRangeStrategy(ExtractionStrategy):
         if self.watermark_storage:
             logger.info("⚠️  Watermark storage provided but not used in time range strategy")
         
+        table_name_with_joins = f"{self.table_config.source_schema}.{self.table_config.source_table}"
+        
+        if hasattr(self.table_config, 'join_expr') and self.table_config.join_expr and self.table_config.join_expr.strip():
+            table_name_with_joins += f" {self.table_config.join_expr.strip()}"
+            logger.info(f"Added JOIN expression: {self.table_config.join_expr.strip()}")
+    
         # Crear parámetros básicos
         params = ExtractionParams(
-            table_name=self._get_source_table_name(),
+            table_name=table_name_with_joins(),
             columns=self._parse_columns(),
             metadata=self._build_basic_metadata()
         )
@@ -34,6 +40,17 @@ class TimeRangeStrategy(ExtractionStrategy):
         for filter_condition in time_range_filters:
             params.add_where_condition(filter_condition)
         
+        # 🔧 AGREGAR FILTER_EXP SI EXISTE
+        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp and self.table_config.filter_exp.strip():
+            filter_exp = self.table_config.filter_exp.strip().replace('"', '')
+            params.add_where_condition(f"({filter_exp})")
+            logger.info(f"Added filter expression: {filter_exp}")
+        
+        # 🔧 AGREGAR ORDER BY SI EXISTE FILTER_COLUMN
+        if hasattr(self.table_config, 'filter_column') and self.table_config.filter_column and self.table_config.filter_column.strip():
+            params.order_by = self.table_config.filter_column.strip()
+            logger.info(f"Added ORDER BY: {params.order_by}")
+            
         # Configurar chunking si es apropiado
         if self._should_use_chunking():
             params.chunk_size = self.extraction_config.chunk_size
