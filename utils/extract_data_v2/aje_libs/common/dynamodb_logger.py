@@ -101,10 +101,11 @@ class DynamoDBLogger:
             process_id = f"{self.team}-{self.data_source}-{self.endpoint_name}-{table_name}"
             
             # Preparar contexto con límites de tamaño
-            log_context = self._prepare_context(context or {})
+            log_context = self._prepare_enhanced_context(context or {}, status, table_name)
             
             # Truncar mensaje si es muy largo
-            truncated_message = message[:2000] + "...[TRUNCATED]" if len(message) > 2000 else message
+            #truncated_message = message[:2000] + "...[TRUNCATED]" if len(message) > 2000 else message
+            truncated_message = message
             
             # Crear registro compatible con tu estructura existente
             record = {
@@ -118,7 +119,7 @@ class DynamoDBLogger:
                 "CONTEXT": log_context,
                 "TEAM": self.team,
                 "DATASOURCE": self.data_source,
-                "ENDPOINT_NAME": context.get("endpoint_name", "") if context else "",
+                "ENDPOINT_NAME": self.endpoint_name,
                 "TABLE_NAME": table_name,
                 "ENVIRONMENT": self.environment,
                 "log_created_at": now_lima.strftime("%Y-%m-%d %H:%M:%S")
@@ -229,6 +230,76 @@ class DynamoDBLogger:
         
         return prepared_context
     
+    def _prepare_enhanced_context(self, context: Dict[str, Any], status: str, table_name: str) -> Dict[str, Any]:
+        """
+        Prepara el contexto con datos adicionales específicos por estado para analítica
+        
+        Args:
+            context: Contexto original
+            status: Estado del proceso
+            table_name: Nombre de la tabla
+            
+        Returns:
+            Contexto enriquecido con datos por estado
+        """
+        # Preparar contexto base con límites de tamaño
+        enhanced_context = self._prepare_context(context)
+        
+        # Agregar metadata común para todos los estados
+        enhanced_context.update({
+            "status_type": status.upper(),
+            "execution_timestamp": datetime.now(self.tz_lima).isoformat(),
+            "pipeline_component": self.flow_name,
+            "source_system": self.data_source
+        })
+        
+        # Datos específicos por estado para analítica
+        if status.upper() == "RUNNING":
+            enhanced_context.update({
+                "start_time": context.get("start_time", datetime.now(self.tz_lima).isoformat()),
+                "expected_duration_minutes": context.get("expected_duration_minutes"),
+                "batch_size": context.get("batch_size"),
+                "parallel_workers": context.get("parallel_workers")
+            })
+        
+        elif status.upper() == "SUCCESS":
+            enhanced_context.update({
+                "end_time": context.get("end_time", datetime.now(self.tz_lima).isoformat()),
+                "duration_seconds": context.get("duration_seconds"),
+                "records_processed": context.get("records_processed", 0),
+                "records_inserted": context.get("records_inserted", 0),
+                "records_updated": context.get("records_updated", 0),
+                "files_generated": context.get("files_generated", 0),
+                "data_size_mb": context.get("data_size_mb"),
+                "success_rate": context.get("success_rate", "100%")
+            })
+        
+        elif status.upper() == "FAILED":
+            enhanced_context.update({
+                "error_time": context.get("error_time", datetime.now(self.tz_lima).isoformat()),
+                "error_type": context.get("error_type", "UnknownError"),
+                "error_details": context.get("error_details", ""),
+                "failed_at_step": context.get("failed_at_step"),
+                "records_processed_before_failure": context.get("records_processed", 0),
+                "retry_count": context.get("retry_count", 0),
+                "is_retryable": context.get("is_retryable", False),
+                "stack_trace": context.get("stack_trace", "")[:500]  # Limitado para no exceder tamaño
+            })
+        
+        elif status.upper() == "WARNING":
+            enhanced_context.update({
+                "warning_time": context.get("warning_time", datetime.now(self.tz_lima).isoformat()),
+                "warning_type": context.get("warning_type", "GeneralWarning"),
+                "warning_details": context.get("warning_details", ""),
+                "affected_records": context.get("affected_records", 0),
+                "records_with_issues": context.get("records_with_issues", 0),
+                "data_quality_score": context.get("data_quality_score"),
+                "can_continue": context.get("can_continue", True),
+                "remediation_applied": context.get("remediation_applied", False)
+            })
+        
+        return enhanced_context
+
     def _get_process_type(self, status: str) -> str:
         """Determina el tipo de proceso basado en el status"""
         if status.upper() in ["RUNNING"]:
