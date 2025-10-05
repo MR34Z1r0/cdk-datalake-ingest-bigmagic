@@ -1,0 +1,57 @@
+2025-10-05 16:21:09 - bigmagic-monitor - INFO - DynamoDBLogger inicializado - Tabla: sofia-dev-datalake-logs-ddb, SNS: True
+2025-10-05 16:21:09 - bigmagic-dynamodb-monitor - INFO - DynamoDBMonitor inicializado usando DynamoDBLogger
+2025-10-05 16:21:09 - __main__ - INFO - 🚀 Starting Data Extraction Process
+2025-10-05 16:21:09 - __main__ - INFO - ✅ Environment validation passed
+2025-10-05 16:21:09 - __main__ - INFO - ================================================================================
+2025-10-05 16:21:09 - __main__ - INFO - 📋 DATA EXTRACTION CONFIGURATION SUMMARY
+2025-10-05 16:21:09 - __main__ - INFO - ================================================================================
+2025-10-05 16:21:09 - __main__ - INFO - 📊 Table: M_COMPANIA
+2025-10-05 16:21:09 - __main__ - INFO - 👥 Team: apdayc
+2025-10-05 16:21:09 - __main__ - INFO - 📡 Source: bigmagic
+2025-10-05 16:21:09 - __main__ - INFO - 🔌 Endpoint: PEBDDATA2
+2025-10-05 16:21:09 - __main__ - INFO - 🌍 Environment: DEV
+2025-10-05 16:21:09 - __main__ - INFO - 🆕 Load Mode: INITIAL
+2025-10-05 16:21:09 - __main__ - INFO - 📁 Format: parquet
+2025-10-05 16:21:09 - __main__ - INFO - 🧵 Threads: 1
+2025-10-05 16:21:09 - __main__ - INFO - 📦 Chunk Size: 500,000
+2025-10-05 16:21:09 - __main__ - INFO - ================================================================================
+2025-10-05 16:21:09 - __main__ - INFO - ℹ️  Primera carga - Extrae TODO y guarda watermark
+2025-10-05 16:21:09 - __main__ - INFO - ================================================================================
+2025-10-05 16:21:09 - core.orchestrator - INFO - === BUILDING TABLE CONFIG ===
+2025-10-05 16:21:09 - core.orchestrator - INFO - Raw CSV row LOAD_TYPE: 'full'
+2025-10-05 16:21:09 - core.orchestrator - INFO - After strip - load_type: 'full'
+2025-10-05 16:21:09 - core.orchestrator - INFO - Before force_full_load check - load_type: 'full'
+2025-10-05 16:21:09 - core.orchestrator - INFO - force_full_load setting: False
+2025-10-05 16:21:09 - core.orchestrator - INFO - Final load_type: 'full'
+2025-10-05 16:21:09 - core.orchestrator - INFO - === END BUILDING TABLE CONFIG ===
+2025-10-05 16:21:09 - core.orchestrator - INFO - Watermark storage not needed for this strategy
+2025-10-05 16:21:10 - bigmagic-monitor - INFO - DynamoDBLogger inicializado - Tabla: sofia-dev-datalake-logs-ddb, SNS: True
+2025-10-05 16:21:10 - bigmagic-dynamodb-monitor - INFO - DynamoDBMonitor inicializado usando DynamoDBLogger
+2025-10-05 16:21:10 - bigmagic-monitor - INFO - Iniciando procesamiento de tabla M_COMPANIA
+2025-10-05 16:21:10 - bigmagic-monitor - INFO - Log registrado en DynamoDB
+2025-10-05 16:21:10 - bigmagic-dynamodb-monitor - INFO - Inicio de extracción registrado
+2025-10-05 16:21:10 - core.orchestrator - INFO - === STARTING CONFIGURATION VALIDATION ===
+2025-10-05 16:21:10 - core.orchestrator - INFO - Validating strategy configuration...
+2025-10-05 16:21:10 - core.orchestrator - INFO - ✅ Strategy validation passed
+2025-10-05 16:21:10 - core.orchestrator - INFO - === CONFIGURATION VALIDATION COMPLETED ===
+2025-10-05 16:21:10 - core.orchestrator - INFO - fullload strategy - deleting existing files
+2025-10-05 16:21:10 - core.orchestrator - INFO - 🔍 DEBUG Strategy name: 'fullload'
+2025-10-05 16:21:10 - core.orchestrator - INFO - 🔍 DEBUG Partition column: ''
+2025-10-05 16:21:10 - core.orchestrator - INFO - 🔍 DEBUG Watermark storage available: False
+2025-10-05 16:21:10 - core.orchestrator - INFO - 🔍 DEBUG Chunk size: 500000
+2025-10-05 16:21:10 - core.orchestrator - INFO - 🔍 DEBUG Order by: None
+2025-10-05 16:21:10 - core.orchestrator - INFO - 🔍 DEBUG Chunking params: {}
+2025-10-05 16:21:10 - core.orchestrator - INFO - 🔍 Processing chunk 1 with 1 rows
+2025-10-05 16:21:10 - core.orchestrator - INFO - 🔍 DEBUG is_incremental: False
+2025-10-05 16:21:10 - core.orchestrator - INFO - 🔍 DEBUG should_track: False
+2025-10-05 16:21:10 - core.orchestrator - INFO - 🔍 No watermark to save
+2025-10-05 16:21:10 - bigmagic-monitor - INFO - Procesamiento exitoso de tabla M_COMPANIA
+2025-10-05 16:21:10 - bigmagic-monitor - INFO - Log registrado en DynamoDB
+2025-10-05 16:21:10 - bigmagic-dynamodb-monitor - INFO - Extracción exitosa registrada
+2025-10-05 16:21:10 - __main__ - INFO - ================================================================================
+2025-10-05 16:21:10 - __main__ - INFO - 🎉 EXTRACTION COMPLETED SUCCESSFULLY
+2025-10-05 16:21:10 - __main__ - INFO - 📊 Records: 1
+2025-10-05 16:21:10 - __main__ - INFO - 📁 Files: 1
+2025-10-05 16:21:10 - __main__ - INFO - ⏱️ Time: 0.46s
+2025-10-05 16:21:10 - __main__ - INFO - 🎯 Strategy: fullload
+2025-10-05 16:21:10 - __main__ - INFO - ================================================================================

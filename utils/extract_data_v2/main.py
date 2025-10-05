@@ -222,8 +222,17 @@ def main():
         # Setup inicial
         args = parse_arguments()
         extraction_config = create_extraction_config(args)
-        setup_logging(args.log_level, extraction_config.table_name, 
-                     extraction_config.team, extraction_config.data_source)
+        
+        # Configurar logging globalmente
+        setup_logging(
+            args.log_level, 
+            extraction_config.table_name, 
+            extraction_config.team, 
+            extraction_config.data_source
+        )
+        
+        # 🔧 CORRECCIÓN: Obtener logger DESPUÉS de configurar
+        logger = DataLakeLogger.get_logger(__name__)
         
         # ÚNICO monitor centralizado
         monitor = setup_monitoring(extraction_config)
@@ -253,60 +262,96 @@ def main():
         # Log success SOLO a través del monitor
         print_results_summary(result, logger)
         
-        # NO llamar a dynamo_logger.log_success, ya se hace en orchestrator
-        # El orchestrator internamente llama a monitor.log_success
-        
         return 0
         
-    except KeyboardInterrupt:
-        error_msg = "Process interrupted by user"
+    except ConfigurationError as e:
+        error_msg = f"Configuration Error: {str(e)}"
+        print(f"❌ {error_msg}")
+        
         if logger:
-            logger.warning(f"⚠️ {error_msg}")
-        if monitor and extraction_config:
-            monitor.log_warning(extraction_config.table_name, error_msg, 
-                              {"interrupted_at": datetime.now().isoformat()})
-        return 130
+            logger.error(error_msg, exc_info=True)
         
-    except (ConfigurationError, ConnectionError, ExtractionError, LoadError) as e:
-        error_type = type(e).__name__
-        error_msg = f"{error_type}: {str(e)}"
-        
-        if logger: 
-            logger.error(f"❌ {error_msg}")
-        else: 
-            print(f"ERROR: {error_msg}")
-        
-        # Log error SOLO a través del monitor
-        if monitor and extraction_config:
+        if monitor:
             monitor.log_error(
-                table_name=extraction_config.table_name,
+                table_name=extraction_config.table_name if extraction_config else "unknown",
+                job_name="data_extraction",
                 error_message=error_msg,
-                metadata={
-                    "error_type": error_type,
-                    "failed_at": datetime.now().isoformat(),
-                    "process_id": process_id
-                }
+                context={"error_type": "ConfigurationError"}
             )
         
-        # Return different codes for different error types
-        error_codes = {
-            'ConfigurationError': 1,
-            'ConnectionError': 2, 
-            'ExtractionError': 3,
-            'LoadError': 4
-        }
-        return error_codes.get(error_type, 99)
+        return 1
+        
+    except ConnectionError as e:
+        error_msg = f"Connection Error: {str(e)}"
+        print(f"❌ {error_msg}")
+        
+        if logger:
+            logger.error(error_msg, exc_info=True)
+        
+        if monitor:
+            monitor.log_error(
+                table_name=extraction_config.table_name if extraction_config else "unknown",
+                job_name="data_extraction",
+                error_message=error_msg,
+                context={"error_type": "ConnectionError"}
+            )
+        
+        return 2
+        
+    except ExtractionError as e:
+        error_msg = f"Extraction Error: {str(e)}"
+        print(f"❌ {error_msg}")
+        
+        if logger:
+            logger.error(error_msg, exc_info=True)
+        
+        if monitor:
+            monitor.log_error(
+                table_name=extraction_config.table_name if extraction_config else "unknown",
+                job_name="data_extraction",
+                error_message=error_msg,
+                context={"error_type": "ExtractionError"}
+            )
+        
+        return 3
+        
+    except LoadError as e:
+        error_msg = f"Load Error: {str(e)}"
+        print(f"❌ {error_msg}")
+        
+        if logger:
+            logger.error(error_msg, exc_info=True)
+        
+        if monitor:
+            monitor.log_error(
+                table_name=extraction_config.table_name if extraction_config else "unknown",
+                job_name="data_extraction",
+                error_message=error_msg,
+                context={"error_type": "LoadError"}
+            )
+        
+        return 4
         
     except Exception as e:
         error_msg = f"Unexpected Error: {str(e)}"
+        print(f"❌ {error_msg}")
+        print(f"Traceback: {traceback.format_exc()}")
         
         if logger:
-            logger.error(f"💥 {error_msg}")
-            logger.error(traceback.format_exc())
-        else:
-            print(f"ERROR: {error_msg}")
-            traceback.print_exc()        
+            logger.error(error_msg, exc_info=True)
+        
+        if monitor:
+            monitor.log_error(
+                table_name=extraction_config.table_name if extraction_config else "unknown",
+                job_name="data_extraction",
+                error_message=error_msg,
+                context={
+                    "error_type": "UnexpectedError",
+                    "traceback": traceback.format_exc()
+                }
+            )
+        
         return 99
-
+    
 if __name__ == '__main__':
     sys.exit(main())

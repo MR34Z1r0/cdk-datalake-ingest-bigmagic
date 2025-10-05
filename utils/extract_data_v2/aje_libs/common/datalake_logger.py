@@ -19,7 +19,7 @@ class DataLakeLogger:
     """
     Clase centralizada para logging en DataLake que maneja automáticamente:
     - AWS CloudWatch (usando aws-lambda-powertools)
-    - Archivos locales (.log)
+    - Archivos locales (.log) - CONSOLIDADO en UN SOLO archivo
     - Console output
     - Detección automática del entorno (AWS vs Local)
     """
@@ -37,6 +37,9 @@ class DataLakeLogger:
     
     # Cache de loggers para evitar recrear
     _logger_cache = {}
+    
+    # Cache de file handlers para reutilizar el MISMO archivo
+    _file_handler_cache = {}
     
     @classmethod
     def configure_global(cls, 
@@ -75,6 +78,7 @@ class DataLakeLogger:
         
         # Limpiar cache cuando cambia configuración
         cls._logger_cache.clear()
+        cls._file_handler_cache.clear()
         
         print(f"DataLakeLogger global config updated: {cls._global_config}")
     
@@ -87,35 +91,55 @@ class DataLakeLogger:
         """
         Obtiene un logger configurado para el entorno actual
         
+        🔧 CONSOLIDADO: Todos los loggers escriben al MISMO archivo por día
+        
         Args:
             name: Nombre del logger (normalmente __name__)
-            service_name: Nombre del servicio (override del global)
-            correlation_id: ID de correlación (override del global)
-            log_level: Nivel de log (override del global)
+            service_name: Nombre del servicio (IGNORADO - usa global)
+            correlation_id: ID de correlación (opcional)
+            log_level: Nivel de log (opcional)
             
         Returns:
-            Logger configurado para el entorno actual
+            Logger configurado
         """
         
-        # Usar configuración global como base
-        effective_service = service_name or cls._global_config['service_name']
-        effective_correlation_id = correlation_id or cls._global_config['correlation_id']
-        effective_log_level = log_level or cls._global_config['log_level']
+        # Usar configuración global
+        final_log_level = log_level or cls._global_config['log_level']
         
-        # Crear cache key
-        cache_key = f"{name}_{effective_service}_{effective_correlation_id}_{effective_log_level}"
+        # 🔑 CLAVE: Usar SIEMPRE el service_name GLOBAL
+        # Esto fuerza que TODOS escriban al mismo archivo
+        final_service_name = cls._global_config['service_name']
         
-        # Devolver del cache si existe
+        final_correlation_id = correlation_id or cls._global_config.get('correlation_id')
+        
+        # Generar nombre del logger
+        logger_name = name or __name__
+        
+        # 🔑 Cache key simplificado - usar solo logger_name
+        cache_key = logger_name
+        
+        # Verificar si ya existe en cache
         if cache_key in cls._logger_cache:
             return cls._logger_cache[cache_key]
         
-        # Detectar entorno
-        is_aws = cls._is_aws_environment()
+        # Detectar si está en AWS
+        is_aws = cls._is_aws_environment() and not cls._global_config['force_local_mode']
         
-        if is_aws and not cls._global_config['force_local_mode']:
-            logger = cls._create_aws_logger(name, effective_service, effective_correlation_id, effective_log_level)
+        if is_aws and POWERTOOLS_AVAILABLE:
+            # Modo AWS con PowerTools
+            logger = cls._create_powertools_logger(
+                logger_name, 
+                final_service_name, 
+                final_log_level,
+                final_correlation_id
+            )
         else:
-            logger = cls._create_local_logger(name, effective_service, effective_log_level)
+            # Modo Local - UN SOLO ARCHIVO
+            logger = cls._create_local_logger(
+                logger_name, 
+                final_service_name,
+                final_log_level
+            )
         
         # Guardar en cache
         cls._logger_cache[cache_key] = logger
@@ -124,80 +148,89 @@ class DataLakeLogger:
     
     @classmethod
     def _is_aws_environment(cls) -> bool:
-        """Detecta si estamos ejecutando en AWS"""
-        if not cls._global_config['auto_detect_env']:
-            return False
-            
-        # Detectores de entorno AWS
+        """Detecta si está corriendo en AWS"""
         aws_indicators = [
-            os.getenv('AWS_EXECUTION_ENV'),  # Lambda/Glue
-            os.getenv('AWS_REGION'),
-            os.getenv('AWS_DEFAULT_REGION'),
-            os.getenv('GLUE_VERSION'),  # Específico de Glue
-            'lambda' in os.getenv('AWS_EXECUTION_ENV', '').lower(),
-            '/opt/ml' in os.getenv('SM_MODEL_DIR', ''),  # SageMaker
+            'AWS_EXECUTION_ENV',
+            'AWS_LAMBDA_FUNCTION_NAME',
+            'GLUE_VERSION',
+            'AWS_REGION'
         ]
         
-        return any(aws_indicators)
+        return any(os.getenv(indicator) for indicator in aws_indicators)
     
     @classmethod
-    def _create_aws_logger(cls, name: str, service_name: str, correlation_id: str, log_level: int) -> logging.Logger:
-        """Crea logger para entorno AWS usando PowerTools"""
+    def _create_powertools_logger(cls, 
+                                  logger_name: str, 
+                                  service_name: str, 
+                                  log_level: int,
+                                  correlation_id: Optional[str] = None) -> logging.Logger:
+        """Crea logger usando AWS Lambda Powertools (para CloudWatch)"""
         
         if not POWERTOOLS_AVAILABLE:
-            print("WARNING: aws-lambda-powertools not available, falling back to local logger")
-            return cls._create_local_logger(name, service_name, log_level)
+            raise ImportError("aws-lambda-powertools not available")
         
-        # Crear PowerTools logger
-        powertools_logger = PowertoolsLogger(
-            name=name or service_name,
-            correlation_id=correlation_id,
+        logger = PowertoolsLogger(
             service=service_name,
-            owner=cls._global_config['owner'],
-            log_uncaught_exceptions=True,
-            level=log_level
+            level=logging.getLevelName(log_level),
+            stream=None,
+            logger_handler=None
         )
         
-        print(f"Created AWS PowerTools logger for: {name or service_name}")
-        return powertools_logger
+        if correlation_id:
+            logger.append_keys(correlation_id=correlation_id)
+        
+        if cls._global_config.get('owner'):
+            logger.append_keys(owner=cls._global_config['owner'])
+        
+        return logger
     
     @classmethod
-    def _create_local_logger(cls, name: str, service_name: str, log_level: int) -> logging.Logger:
-        """Crea logger para entorno local con archivo de log"""
+    def _create_local_logger(cls, logger_name: str, service_name: str, log_level: int) -> logging.Logger:
+        """
+        Crea logger local que escribe a archivo y consola
         
-        logger_name = name or service_name or 'datalake'
+        🔧 CONSOLIDADO: TODOS escriben al MISMO archivo
+        """
         
-        # Crear logger estándar de Python
+        # Crear logger con nombre jerárquico
         logger = logging.getLogger(logger_name)
         logger.setLevel(log_level)
         
-        # Limpiar handlers existentes para evitar duplicados
-        if logger.handlers:
-            logger.handlers.clear()
+        # Limpiar handlers existentes para este logger específico
+        logger.handlers.clear()
         
-        # Crear formatter
+        # Formatter
         formatter = logging.Formatter(
             '%(asctime)s - %(name)s - %(levelname)s - %(message)s',
             datefmt='%Y-%m-%d %H:%M:%S'
         )
         
-        # Handler para consola
+        # Handler para consola (individual por logger)
         console_handler = logging.StreamHandler()
         console_handler.setLevel(log_level)
         console_handler.setFormatter(formatter)
         logger.addHandler(console_handler)
         
-        # Handler para archivo (solo en modo local)
-        log_file_path = cls._get_log_file_path(logger_name, service_name)
+        # 🔑 Handler para archivo (COMPARTIDO por TODOS)
+        log_file_path = cls._get_log_file_path(service_name)
         if log_file_path:
-            try:
-                file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
-                file_handler.setLevel(log_level)
-                file_handler.setFormatter(formatter)
-                logger.addHandler(file_handler)
-                print(f"Created local logger with file: {log_file_path}")
-            except Exception as e:
-                print(f"WARNING: Could not create log file {log_file_path}: {e}")
+            # Verificar si ya existe un file handler para este archivo
+            if log_file_path not in cls._file_handler_cache:
+                try:
+                    file_handler = logging.FileHandler(log_file_path, encoding='utf-8')
+                    file_handler.setLevel(log_level)
+                    file_handler.setFormatter(formatter)
+                    cls._file_handler_cache[log_file_path] = file_handler
+                    print(f"📝 Created log file: {log_file_path}")
+                except Exception as e:
+                    print(f"WARNING: Could not create log file {log_file_path}: {e}")
+                    logger.addHandler(console_handler)
+                    logger.propagate = False
+                    return logger
+            
+            # Reutilizar el file handler existente
+            file_handler = cls._file_handler_cache[log_file_path]
+            logger.addHandler(file_handler)
         
         # Evitar propagación para prevenir logs duplicados
         logger.propagate = False
@@ -205,8 +238,12 @@ class DataLakeLogger:
         return logger
     
     @classmethod
-    def _get_log_file_path(cls, logger_name: str, service_name: str) -> Optional[str]:
-        """Genera ruta para archivo de log"""
+    def _get_log_file_path(cls, service_name: str) -> Optional[str]:
+        """
+        Genera ruta para archivo de log
+        
+        🔧 UN SOLO archivo por service_name y fecha
+        """
         
         log_dir = cls._global_config['log_directory']
         
@@ -217,12 +254,14 @@ class DataLakeLogger:
             print(f"WARNING: Could not create log directory {log_dir}: {e}")
             return None
         
-        # Generar nombre de archivo con timestamp
+        # 🔑 UN SOLO archivo usando SOLO service_name
         timestamp = dt.datetime.now().strftime('%Y%m%d')
-        safe_logger_name = logger_name.replace('.', '_').replace(' ', '_')
         safe_service_name = service_name.replace('.', '_').replace(' ', '_')
         
-        filename = f"{safe_service_name}_{safe_logger_name}_{timestamp}.log"
+        # Formato: {service_name}_{date}.log
+        # TODOS los módulos escriben aquí
+        filename = f"{safe_service_name}_{timestamp}.log"
+        
         return os.path.join(log_dir, filename)
     
     @classmethod
@@ -256,6 +295,7 @@ class DataLakeLogger:
     def clear_cache(cls):
         """Limpia el cache de loggers (útil para testing)"""
         cls._logger_cache.clear()
+        cls._file_handler_cache.clear()
         print("DataLakeLogger cache cleared")
 
 
