@@ -29,7 +29,6 @@ class SQLServerExtractor(ExtractorInterface):
         self.retry_delay = 5
         self.use_sqlalchemy = True  # Prefer SQLAlchemy when available
 
-        # 🔧 Usar DataLakeLogger en lugar de custom_logger
         from aje_libs.common.datalake_logger import DataLakeLogger
         self.logger = DataLakeLogger.get_logger(__name__)
     
