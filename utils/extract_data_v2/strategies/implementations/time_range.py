@@ -144,6 +144,67 @@ class TimeRangeStrategy(ExtractionStrategy):
         
         return filters
 
+    def _build_date_range_filter(self) -> str:
+        """
+        Construye filtro de rango de fechas usando delay_incremental_ini 
+        y opcionalmente delay_incremental_end
+        """
+        try:
+            # 🔑 Verificar si existe delay_incremental_end
+            has_delay_end = (
+                hasattr(self.table_config, 'delay_incremental_end') and 
+                self.table_config.delay_incremental_end and
+                str(self.table_config.delay_incremental_end).strip()
+            )
+            
+            if has_delay_end:
+                # 🆕 Usar función que acepta AMBOS parámetros
+                from utils.date_utils import get_date_limits_with_range
+                
+                clean_delay_ini = self.table_config.delay_incremental_ini.strip().replace("'", "")
+                clean_delay_end = self.table_config.delay_incremental_end.strip().replace("'", "")
+                
+                logger.info(f"📅 Date range with both delays: INI={clean_delay_ini}, END={clean_delay_end}")
+                
+                # Obtener límites con AMBOS delays
+                lower_limit, upper_limit = get_date_limits_with_range(
+                    clean_delay_ini,
+                    clean_delay_end,
+                    getattr(self.table_config, 'filter_data_type', '') or ""
+                )
+            else:
+                # ✅ Comportamiento original: solo delay_incremental_ini
+                from utils.date_utils import get_date_limits
+                
+                clean_delay_ini = self.table_config.delay_incremental_ini.strip().replace("'", "")
+                
+                logger.info(f"📅 Date range with single delay: INI={clean_delay_ini} (END defaults to today)")
+                
+                # Obtener límites (upper_limit será "hoy")
+                lower_limit, upper_limit = get_date_limits(
+                    clean_delay_ini,
+                    getattr(self.table_config, 'filter_data_type', '') or ""
+                )
+            
+            # Construir condición de filtro de rango
+            filter_condition = self.table_config.filter_column.replace(
+                '{0}', lower_limit
+            ).replace(
+                '{1}', upper_limit
+            ).replace('"', '')
+            
+            logger.info(f"✅ Built date range filter: {filter_condition}")
+            logger.info(f"   Lower limit: {lower_limit}")
+            logger.info(f"   Upper limit: {upper_limit}")
+            
+            return filter_condition
+            
+        except Exception as e:
+            logger.warning(f"Failed to build date range filter: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return None
+    
     def _validate_time_range_config(self) -> List[str]:
         """Validaciones específicas para estrategia de rango de tiempo"""
         errors = []
@@ -200,34 +261,6 @@ class TimeRangeStrategy(ExtractionStrategy):
             
         except Exception as e:
             logger.warning(f"Failed to build explicit time range filter: {e}")
-            return None
-    
-    def _build_date_range_filter(self) -> str:
-        """Construye filtro de rango de fechas usando delay_incremental_ini"""
-        try:
-            from utils.date_utils import get_date_limits
-            
-            # Limpiar delay value
-            clean_delay = self.table_config.delay_incremental_ini.strip().replace("'", "")
-            
-            # Obtener límites de fecha
-            lower_limit, upper_limit = get_date_limits(
-                clean_delay,
-                getattr(self.table_config, 'filter_data_type', '') or ""
-            )
-            
-            # Construir condición de filtro de rango
-            filter_condition = self.table_config.filter_column.replace(
-                '{0}', lower_limit
-            ).replace(
-                '{1}', upper_limit
-            ).replace('"', '')
-            
-            logger.info(f"Built date range filter: {filter_condition}")
-            return filter_condition
-            
-        except Exception as e:
-            logger.warning(f"Failed to build date range filter: {e}")
             return None
     
     def _should_use_chunking(self) -> bool:
