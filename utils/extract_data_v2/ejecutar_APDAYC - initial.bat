@@ -2,10 +2,10 @@
 setlocal
 
 REM Activar el entorno virtual desde la raíz del proyecto
-call D:\WORKSPACE_GIT\VALORX\cdk-datalake-ingest-upeu\.venv\Scripts\activate.bat
+call D:\WORKSPACE-GIT\VALORX\cdk-datalake-ingest-bigmagic\.venv\Scripts\activate.bat
 
 REM Movernos a la carpeta donde está el script y el txt
-cd /c D:\WORKSPACE_GIT\VALORX\cdk-datalake-ingest-bigmagic\utils\extract_data_v2
+cd /c D:\WORKSPACE-GIT\VALORX\cdk-datalake-ingest-bigmagic\utils\extract_data_v2
 
 REM Iterar sobre las tablas del archivo tablas.txt
 for /f %%T in (tables-initial.txt) do (
