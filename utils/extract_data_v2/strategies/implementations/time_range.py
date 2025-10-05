@@ -3,9 +3,9 @@ from typing import List
 from ..base.extraction_strategy import ExtractionStrategy
 from ..base.extraction_params import ExtractionParams
 from ..base.strategy_types import ExtractionStrategyType
-from aje_libs.common.logger import custom_logger
+from aje_libs.common.datalake_logger import DataLakeLogger
 
-logger = custom_logger(__name__)
+logger = DataLakeLogger.get_logger(__name__)
 
 class TimeRangeStrategy(ExtractionStrategy):
     """Estrategia para carga por rango de fechas específico"""

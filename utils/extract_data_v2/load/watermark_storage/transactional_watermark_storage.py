@@ -1,6 +1,6 @@
 # load/watermark_storage/transactional_watermark_storage.py
 from interfaces.watermark_interface import WatermarkStorageInterface
-from aje_libs.common.logger import custom_logger
+from aje_libs.common.datalake_logger import DataLakeLogger
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
@@ -15,7 +15,7 @@ class TransactionalWatermarkStorage(WatermarkStorageInterface):
     """Wrapper transaccional sobre WatermarkStorage"""
     
     def __init__(self, base_storage: WatermarkStorageInterface, project_name: str):
-        self.logger = custom_logger(__name__)
+        self.logger = DataLakeLogger.get_logger(__name__)
         self.base_storage = base_storage
         self.project_name = project_name
         self._pending_watermarks = {}

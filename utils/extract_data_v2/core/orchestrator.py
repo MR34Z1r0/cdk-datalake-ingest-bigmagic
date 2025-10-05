@@ -22,7 +22,6 @@ from strategies.strategy_factory import StrategyFactory
 from utils.csv_loader import CSVConfigLoader
 from exceptions.custom_exceptions import *
 from config.settings import settings
-from aje_libs.common.logger import custom_logger
             
 
 class DataExtractionOrchestrator:

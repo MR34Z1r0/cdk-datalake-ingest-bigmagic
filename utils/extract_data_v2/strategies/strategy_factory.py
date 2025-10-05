@@ -8,9 +8,9 @@ from interfaces.watermark_interface import WatermarkStorageInterface
 from models.table_config import TableConfig
 from models.extraction_config import ExtractionConfig
 from exceptions.custom_exceptions import ConfigurationError
-from aje_libs.common.logger import custom_logger
+from aje_libs.common.datalake_logger import DataLakeLogger
 
-logger = custom_logger(__name__)
+logger = DataLakeLogger.get_logger(__name__)
 
 class StrategyFactory:
     """Factory simplificado para crear estrategias de extracción"""

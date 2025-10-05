@@ -3,9 +3,9 @@ from interfaces.watermark_interface import WatermarkStorageInterface
 from .watermark_storage.dynamodb_watermark_storage import DynamoDBWatermarkStorage 
 from .watermark_storage.csv_watermark_storage import CSVWatermarkStorage
 from .watermark_storage.transactional_watermark_storage import TransactionalWatermarkStorage
-from aje_libs.common.logger import custom_logger
+from aje_libs.common.datalake_logger import DataLakeLogger
 
-logger = custom_logger(__name__)
+logger = DataLakeLogger.get_logger(__name__)
 
 class WatermarkStorageFactory:
     """Factory para crear storage de watermarks"""

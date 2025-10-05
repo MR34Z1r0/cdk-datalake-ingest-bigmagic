@@ -2,7 +2,7 @@
 from interfaces.watermark_interface import WatermarkStorageInterface
 from aje_libs.common.helpers.dynamodb_helper import DynamoDBHelper
 from utils.date_utils import get_current_lima_time
-from aje_libs.common.logger import custom_logger
+from aje_libs.common.datalake_logger import DataLakeLogger
 from typing import Optional, Dict, Any, List
 import json
 from datetime import timedelta
@@ -11,7 +11,7 @@ class DynamoDBWatermarkStorage(WatermarkStorageInterface):
     """Implementación DynamoDB para watermarks"""
     
     def __init__(self, table_name: str, project_name: str):
-        self.logger = custom_logger(__name__)
+        self.logger = DataLakeLogger.get_logger(__name__)
         self.table_name = table_name
         self.project_name = project_name
         self.dynamo_helper = DynamoDBHelper(

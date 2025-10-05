@@ -43,6 +43,6 @@ class ExtractionConfig:
         # 🔄 Compatibilidad: Convertir force_full_load a load_mode
         if self.force_full_load and self.load_mode == LoadMode.NORMAL:
             self.load_mode = LoadMode.RESET
-            from aje_libs.common.logger import custom_logger
-            logger = custom_logger(__name__)
+            from aje_libs.common.datalake_logger import DataLakeLogger
+            logger = DataLakeLogger.get_logger(__name__)
             logger.warning("⚠️ force_full_load=True is deprecated. Mapped to load_mode=RESET")

@@ -5,13 +5,13 @@ import os
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from interfaces.watermark_interface import WatermarkStorageInterface
-from aje_libs.common.logger import custom_logger
+from aje_libs.common.datalake_logger import DataLakeLogger
 
 class CSVWatermarkStorage(WatermarkStorageInterface):
     """Implementación CSV para watermarks (desarrollo/testing)"""
     
     def __init__(self, csv_file_path: str, project_name: str):
-        self.logger = custom_logger(__name__)
+        self.logger = DataLakeLogger.get_logger(__name__)
         self.csv_file_path = csv_file_path
         self.project_name = project_name
         self._ensure_csv_exists()

@@ -1,3 +1,5 @@
+# main.py - VERSIÓN CORREGIDA
+
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -25,17 +27,38 @@ from config.settings import settings
 from models.load_mode import LoadMode
 import argparse
 
-logger = DataLakeLogger.get_logger(__name__)
-DataLakeLogger.print_environment_info()
+# ❌ ELIMINAR ESTAS DOS LÍNEAS - No crear logger aquí
+# logger = DataLakeLogger.get_logger(__name__)
+# DataLakeLogger.print_environment_info()
 
 def parse_arguments():
-    """Parse command line arguments - only table name required"""
-    parser = argparse.ArgumentParser(description='Data Extraction Tool')
+    """Parse command line arguments"""
+    parser = argparse.ArgumentParser(
+        description='Data Lake Extraction Service V2',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Ejemplos de uso:
+
+  # Carga normal (default)
+  python main.py --table-name ST_DIM_AFILIACION
+
+  # Primera carga de una tabla (guarda watermark)
+  python main.py --table-name ST_DIM_AFILIACION --load-mode initial
+
+  # Reiniciar una tabla corrupta (limpia y recrea watermark)
+  python main.py --table-name ST_DIM_AFILIACION --load-mode reset
+
+  # Reprocesar con configuración específica
+  python main.py --table-name ST_FACT_RECAUDACION --load-mode reprocess
+        """
+    )
     
-    # ÚNICO argumento requerido
-    parser.add_argument('--table-name', '-t',
-                       required=True,
-                       help='Table name to extract')
+    # Argumentos
+    parser.add_argument(
+        '--table-name', '-t',
+        required=True,
+        help='Nombre de la tabla a extraer (ej: ST_DIM_AFILIACION)'
+    )
     
     parser.add_argument(
         '--load-mode', '-m',
@@ -50,16 +73,19 @@ def parse_arguments():
         """
     )
     
-    # Argumentos opcionales para debugging/override (raramente usados)
-    parser.add_argument('--log-level', 
-                       choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], 
-                       default='INFO',
-                       help='Log level (default: INFO)')
-    parser.add_argument('--dry-run', 
-                       action='store_true', 
-                       help='Validate configuration only, do not extract')
-
-    # ⚠️ DEPRECATED: Mantener por compatibilidad
+    parser.add_argument(
+        '--log-level',
+        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'],
+        default='INFO',
+        help='Nivel de logging (default: INFO)'
+    )
+    
+    parser.add_argument(
+        '--dry-run',
+        action='store_true',
+        help='Validar configuración sin ejecutar extracción'
+    )
+    
     parser.add_argument(
         '--force-full-load',
         action='store_true',
@@ -87,47 +113,51 @@ def setup_logging(log_level: str, table_name: str, team: str, data_source: str):
     )
 
 def setup_monitoring(extraction_config: ExtractionConfig) -> MonitorInterface:
-    """
-    Setup monitoring system - ÚNICO PUNTO DE ENTRADA para logs de DynamoDB
-    """
-    return MonitorFactory.create(
-        'dynamodb',
+    """Setup monitoring infrastructure"""
+    monitor = MonitorFactory.create(
+        monitor_type=settings.get('MONITOR_TYPE', 'dynamodb'),
         table_name=extraction_config.dynamo_logs_table,
-        project_name=extraction_config.data_source,
+        project_name=extraction_config.project_name,  # 🔧 AGREGAR esta línea
         sns_topic_arn=extraction_config.topic_arn,
         team=extraction_config.team,
         data_source=extraction_config.data_source,
         endpoint_name=extraction_config.endpoint_name,
         environment=extraction_config.environment
     )
+    return monitor
 
 def create_extraction_config(args) -> ExtractionConfig:
-    """
-    Create extraction configuration from .env
-    Only table_name comes from CLI args, everything else from .env
-    """
-    base_config = settings.get_all()
+    """Create extraction configuration from arguments and environment"""
+    # 🔧 NO crear logger aquí todavía
     
-    # Validar que existan las variables críticas del .env
-    required_env_vars = ['PROJECT_NAME', 'TEAM', 'DATA_SOURCE', 'ENDPOINT_NAME', 
-                         'ENVIRONMENT', 'MAX_THREADS', 'CHUNK_SIZE']
-    missing_vars = [var for var in required_env_vars if not base_config.get(var)]
+    # Cargar configuración base desde .env
+    base_config = {
+        'PROJECT_NAME': settings.get('PROJECT_NAME'),
+        'TEAM': settings.get('TEAM'),
+        'DATA_SOURCE': settings.get('DATA_SOURCE'),
+        'ENDPOINT_NAME': settings.get('ENDPOINT_NAME'),
+        'ENVIRONMENT': settings.get('ENVIRONMENT'),
+        'MAX_THREADS': settings.get('MAX_THREADS'),
+        'CHUNK_SIZE': settings.get('CHUNK_SIZE'),
+        'OUTPUT_FORMAT': settings.get('OUTPUT_FORMAT', 'parquet'),
+        'S3_RAW_BUCKET': settings.get('S3_RAW_BUCKET'),
+        'DYNAMO_LOGS_TABLE': settings.get('DYNAMO_LOGS_TABLE'),
+        'TOPIC_ARN': settings.get('TOPIC_ARN'),
+    }
     
-    if missing_vars:
-        raise ConfigurationError(
-            f"Missing required environment variables in .env: {', '.join(missing_vars)}"
-        )
-    
+    # Determinar load_mode
     load_mode = LoadMode.from_string(args.load_mode)
     
+    # Compatibilidad con --force-full-load (deprecated)
     if args.force_full_load:
-        logger.warning("⚠️ --force-full-load is DEPRECATED. Use --load-mode reset instead")
+        # Solo imprimir warning, logger se creará después
+        print("⚠️ --force-full-load is DEPRECATED. Use --load-mode reset instead")
         load_mode = LoadMode.RESET
     
-    logger.info(f"🎯 Load Mode: {load_mode.value.upper()}")
-
+    # Imprimir load mode (sin logger todavía)
+    print(f"🎯 Load Mode: {load_mode.value.upper()}")
+    
     return ExtractionConfig(
-        # Desde .env
         project_name=base_config['PROJECT_NAME'],
         team=base_config['TEAM'],
         data_source=base_config['DATA_SOURCE'],
@@ -136,17 +166,11 @@ def create_extraction_config(args) -> ExtractionConfig:
         max_threads=base_config['MAX_THREADS'],
         chunk_size=base_config['CHUNK_SIZE'],
         output_format=base_config['OUTPUT_FORMAT'],
-        
-        # Desde argumentos
         table_name=args.table_name,
         load_mode=load_mode,
-        
-        # Opcionales
         s3_raw_bucket=base_config.get('S3_RAW_BUCKET'),
         dynamo_logs_table=base_config.get('DYNAMO_LOGS_TABLE'),
         topic_arn=base_config.get('TOPIC_ARN'),
-        
-        # Deprecated pero mantener por compatibilidad
         force_full_load=args.force_full_load
     )
 
@@ -223,7 +247,7 @@ def main():
         args = parse_arguments()
         extraction_config = create_extraction_config(args)
         
-        # Configurar logging globalmente
+        # ✅ Configurar logging globalmente PRIMERO
         setup_logging(
             args.log_level, 
             extraction_config.table_name, 
@@ -231,17 +255,14 @@ def main():
             extraction_config.data_source
         )
         
-        # 🔧 CORRECCIÓN: Obtener logger DESPUÉS de configurar
+        # ✅ Ahora SÍ crear logger y mostrar info
         logger = DataLakeLogger.get_logger(__name__)
+        DataLakeLogger.print_environment_info()
         
-        # ÚNICO monitor centralizado
+        # Setup monitoring
         monitor = setup_monitoring(extraction_config)
         
-        logger.info("🚀 Starting Data Extraction Process", {
-            "table": extraction_config.table_name,
-            "team": extraction_config.team,
-            "data_source": extraction_config.data_source
-        })
+        logger.info("🚀 Starting Data Extraction Process")
         
         validate_environment()
         print_configuration_summary(extraction_config)
@@ -255,11 +276,11 @@ def main():
             logger.info("🧪 DRY RUN COMPLETED - No data was extracted")
             return 0
          
-        # Execute extraction con el monitor integrado
+        # Execute extraction
         orchestrator = DataExtractionOrchestrator(extraction_config, monitor=monitor)
         result = orchestrator.execute()
         
-        # Log success SOLO a través del monitor
+        # Log success
         print_results_summary(result, logger)
         
         return 0
@@ -352,6 +373,7 @@ def main():
             )
         
         return 99
-    
-if __name__ == '__main__':
+
+
+if __name__ == "__main__":
     sys.exit(main())

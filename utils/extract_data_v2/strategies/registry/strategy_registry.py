@@ -2,9 +2,9 @@
 from typing import Dict, Type
 from ..base.extraction_strategy import ExtractionStrategy
 from ..base.strategy_types import ExtractionStrategyType
-from aje_libs.common.logger import custom_logger
+from aje_libs.common.datalake_logger import DataLakeLogger
 
-logger = custom_logger(__name__)
+logger = DataLakeLogger.get_logger(__name__)
 
 class StrategyRegistry:
     """Registro central de estrategias de extracción"""

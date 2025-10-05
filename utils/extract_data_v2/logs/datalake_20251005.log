@@ -1,1 +1,36 @@
-2025-10-05 16:21:09 - __main__ - INFO - 🎯 Load Mode: INITIAL
+2025-10-05 16:58:22 - strategies.registry.strategy_registry - INFO - Registering strategy: full -> FullLoadStrategy
+2025-10-05 16:58:22 - strategies.registry.strategy_registry - INFO - Registering strategy: incremental -> IncrementalStrategy
+2025-10-05 16:58:22 - strategies.registry.strategy_registry - INFO - Registering strategy: time_range -> TimeRangeStrategy
+2025-10-05 16:58:22 - strategies.registry.strategy_registry - INFO - All default strategies registered successfully
+2025-10-05 16:58:23 - strategies.strategy_factory - INFO - === STRATEGY FACTORY ===
+2025-10-05 16:58:23 - strategies.strategy_factory - INFO - Table: M_COMPANIA
+2025-10-05 16:58:23 - strategies.strategy_factory - INFO - Load type from config: 'full'
+2025-10-05 16:58:23 - strategies.strategy_factory - INFO - Mapped to strategy type: full
+2025-10-05 16:58:23 - strategies.strategy_factory - INFO - Determined strategy type: full
+2025-10-05 16:58:23 - strategies.strategy_factory - INFO - Creating strategy instance: FullLoadStrategy
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - === FULL LOAD STRATEGY VALIDATION ===
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - Checking stage_table_name: 'm_compania'
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO -   ✅ stage_table_name is valid
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - Checking source_schema: 'dbo'
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO -   ✅ source_schema is valid
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - Checking source_table: 'mcompa1f'
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO -   ✅ source_table is valid
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - Checking columns: 'dbo.func_cas_todatetime(fecultmod,horultimod) lastmodifydate, compania,replace(replace(nombre, char(13),''), char(10),'') nombre,cast(cast(persona as int) as varchar(20)) persona, tipovia,replace(replace(direccion, char(13),''), char(10),'') direccion,rtrim(ltrim(pais)) pais, departamen, provincia, zonapostal, telefono1, telefono2, telefono3, telefono4, fax, flgtipocia, ruc, nota, regigv, estado, feccrea, horcrea, usucrea, fecultmod, horultimod, ultusumod, abrevbco,case when aprobreq = 0x46 then 'F' when aprobreq = 0x54 then 'T' end aprobreq,case when aproboco = 0x46 then 'F' when aproboco = 0x54 then 'T' end aproboco, ipenlace,case when flgctrfaoc = 0x46 then 'F' when flgctrfaoc = 0x54 then 'T' end flgctrfaoc,case when flgrestart = 0x46 then 'F' when flgrestart = 0x54 then 'T' end flgrestart,case when flgaprogj = 0x46 then 'F' when flgaprogj = 0x54 then 'T' end flgaprogj,cast(cast(cantemple as int) as varchar(20)) cantemple, sucprin, coidioma, intercom, flgbi'
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO -   ✅ columns is valid
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - ✅ ALL VALIDATION CHECKS PASSED
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - === END VALIDATION ===
+2025-10-05 16:58:23 - strategies.strategy_factory - INFO - Strategy instance created and wrapped in adapter successfully
+2025-10-05 16:58:23 - strategies.strategy_factory - INFO - === END STRATEGY FACTORY ===
+2025-10-05 16:58:23 - strategies.adapters.strategy_adapter - INFO - === STRATEGY ADAPTER - Generating Queries ===
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - === FULL LOAD STRATEGY ===
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - Table: M_COMPANIA
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - Load Mode: initial
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - 🔍 Watermark tracking decision:
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO -    - Load Mode: initial
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO -    - Has partition column: 
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO -    - Has watermark storage: False
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO -    - Is incremental table: False
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO -    - Should track: 
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - ℹ️ Full load without watermark tracking
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - 📋 Building non-partitioned full load params
+2025-10-05 16:58:23 - strategies.implementations.full_load - INFO - ✅ Params built - Columns: 48, Filters: 0
