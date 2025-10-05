@@ -4,6 +4,7 @@ from ..base.extraction_strategy import ExtractionStrategy
 from ..base.extraction_params import ExtractionParams
 from ..base.strategy_types import ExtractionStrategyType
 from aje_libs.common.logger import custom_logger
+from models.load_mode import LoadMode
 
 logger = custom_logger(__name__)
 
@@ -14,38 +15,116 @@ class IncrementalStrategy(ExtractionStrategy):
         return ExtractionStrategyType.INCREMENTAL
     
     def build_extraction_params(self) -> ExtractionParams:
-        """Construye parámetros para carga incremental"""
-        logger.info(f"=== INCREMENTAL STRATEGY - Building Params ===")
+        logger.info(f"=== INCREMENTAL STRATEGY ===")
         logger.info(f"Table: {self.extraction_config.table_name}")
+        logger.info(f"Load Mode: {self.extraction_config.load_mode.value}")
         
-        # 🎯 VERIFICAR SI HAY WATERMARK STORAGE DISPONIBLE
-        if self.watermark_storage:
-            logger.info("✅ Watermark storage available for incremental strategy")
+        load_mode = self.extraction_config.load_mode
+        
+        # 🔄 RESET mode: Limpiar watermark y hacer carga inicial
+        if load_mode == LoadMode.RESET:
+            logger.info("🔄 RESET mode - doing full load + saving watermark")
+            self._reset_watermark_if_exists()
+            return self._build_initial_load_params()
+        
+        # 🆕 INITIAL mode: Hacer carga inicial (full + watermark)
+        elif load_mode == LoadMode.INITIAL:
+            logger.info("🆕 INITIAL mode - doing full load + saving watermark")
+            return self._build_initial_load_params()
+        
+        # 📊 NORMAL mode: Carga incremental desde watermark
         else:
-            logger.warning("⚠️  No watermark storage provided - will do date-based incremental only")
+            logger.info("📊 NORMAL mode - incremental from watermark")
+            return self._build_incremental_params()
+    
+    def _build_initial_load_params(self) -> ExtractionParams:
+        """
+        Construye parámetros para carga inicial.
         
-        # Crear parámetros básicos
+        Carga COMPLETA sin filtros de watermark, pero marcada para guardar watermark.
+        """
+        logger.info("🏗️ Building INITIAL load params (full + watermark tracking)")
+        
         params = ExtractionParams(
             table_name=self._get_source_table_name(),
             columns=self._parse_columns(),
             metadata=self._build_basic_metadata()
         )
         
-        # Agregar filtros incrementales (CON o SIN watermarks según disponibilidad)
+        # Solo filtros básicos (NO watermark)
+        basic_filters = self._build_basic_filters()
+        for filter_condition in basic_filters:
+            if filter_condition:
+                params.add_where_condition(filter_condition)
+                logger.info(f"➕ Basic filter: {filter_condition}")
+        
+        # 🔑 Marcar que debe guardar watermark
+        params.metadata['should_track_watermark'] = True
+        params.metadata['watermark_column'] = self.table_config.partition_column
+        
+        logger.info(f"✅ Initial load params built - will track watermark")
+        
+        return params
+    
+    def _build_incremental_params(self) -> ExtractionParams:
+        """
+        Construye parámetros para carga incremental normal.
+        
+        Carga INCREMENTAL desde último watermark.
+        """
+        logger.info("📊 Building INCREMENTAL params (with watermark filters)")
+        
+        params = ExtractionParams(
+            table_name=self._get_source_table_name(),
+            columns=self._parse_columns(),
+            metadata=self._build_basic_metadata()
+        )
+        
+        # Filtros incrementales CON watermark
         incremental_filters = self._build_incremental_filters_with_watermark()
         for filter_condition in incremental_filters:
             params.add_where_condition(filter_condition)
+            logger.info(f"➕ Incremental filter: {filter_condition}")
         
         # Configurar chunking si es apropiado
         if self._should_use_chunking():
             params.chunk_size = self.extraction_config.chunk_size
             params.chunk_column = self._get_chunking_column()
-            logger.info(f"Chunking enabled - Size: {params.chunk_size}, Column: {params.chunk_column}")
+            logger.info(f"🔢 Chunking enabled - Size: {params.chunk_size}, Column: {params.chunk_column}")
         
-        logger.info(f"Incremental extraction params built - Columns: {len(params.columns)}, Where conditions: {len(params.where_conditions)}")
-        logger.info("=== END INCREMENTAL STRATEGY ===")
+        # Marcar que debe guardar watermark
+        params.metadata['should_track_watermark'] = True
+        params.metadata['watermark_column'] = self.table_config.partition_column
+        
+        logger.info(f"✅ Incremental params built")
         
         return params
+    
+    def _reset_watermark_if_exists(self):
+        """Limpia el watermark existente"""
+        if not self.watermark_storage:
+            return
+        
+        if not (hasattr(self.table_config, 'partition_column') and 
+                self.table_config.partition_column):
+            return
+        
+        try:
+            existing = self.watermark_storage.get_last_extracted_value(
+                table_name=self.table_config.stage_table_name,
+                column_name=self.table_config.partition_column
+            )
+            
+            if existing:
+                logger.info(f"🗑️ Resetting watermark: {existing}")
+                if hasattr(self.watermark_storage, 'delete_watermark'):
+                    self.watermark_storage.delete_watermark(
+                        table_name=self.table_config.stage_table_name,
+                        column_name=self.table_config.partition_column
+                    )
+                    logger.info(f"✅ Watermark deleted")
+        except Exception as e:
+            logger.warning(f"Failed to reset watermark: {e}")
     
     def validate(self) -> bool:
         """Valida configuración para carga incremental"""

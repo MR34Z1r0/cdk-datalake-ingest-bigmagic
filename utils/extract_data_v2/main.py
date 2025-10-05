@@ -22,7 +22,11 @@ from exceptions.custom_exceptions import (
     ExtractionError, LoadError
 )
 from config.settings import settings
+from models.load_mode import LoadMode
 import argparse
+
+logger = DataLakeLogger.get_logger(__name__)
+DataLakeLogger.print_environment_info()
 
 def parse_arguments():
     """Parse command line arguments - only table name required"""
@@ -33,6 +37,19 @@ def parse_arguments():
                        required=True,
                        help='Table name to extract')
     
+    parser.add_argument(
+        '--load-mode', '-m',
+        type=str,
+        choices=['initial', 'normal', 'reset', 'reprocess'],
+        default='normal',
+        help="""Modo de carga:
+        - initial: Primera carga (full + guarda watermark)
+        - normal: Carga regular (incremental desde watermark o full sin watermark) [DEFAULT]
+        - reset: Reiniciar (limpia watermark + full + guarda nuevo watermark)
+        - reprocess: Reprocesar con configuración específica
+        """
+    )
+    
     # Argumentos opcionales para debugging/override (raramente usados)
     parser.add_argument('--log-level', 
                        choices=['DEBUG', 'INFO', 'WARNING', 'ERROR'], 
@@ -41,6 +58,13 @@ def parse_arguments():
     parser.add_argument('--dry-run', 
                        action='store_true', 
                        help='Validate configuration only, do not extract')
+
+    # ⚠️ DEPRECATED: Mantener por compatibilidad
+    parser.add_argument(
+        '--force-full-load',
+        action='store_true',
+        help='[DEPRECATED] Usar --load-mode reset en su lugar'
+    )
     
     return parser.parse_args()
 
@@ -94,27 +118,36 @@ def create_extraction_config(args) -> ExtractionConfig:
             f"Missing required environment variables in .env: {', '.join(missing_vars)}"
         )
     
+    load_mode = LoadMode.from_string(args.load_mode)
+    
+    if args.force_full_load:
+        logger.warning("⚠️ --force-full-load is DEPRECATED. Use --load-mode reset instead")
+        load_mode = LoadMode.RESET
+    
+    logger.info(f"🎯 Load Mode: {load_mode.value.upper()}")
+
     return ExtractionConfig(
-        # Campos obligatorios desde .env
-        project_name=base_config.get('PROJECT_NAME'),
-        team=base_config.get('TEAM'),
-        data_source=base_config.get('DATA_SOURCE'),
-        endpoint_name=base_config.get('ENDPOINT_NAME'),
-        environment=base_config.get('ENVIRONMENT'),
+        # Desde .env
+        project_name=base_config['PROJECT_NAME'],
+        team=base_config['TEAM'],
+        data_source=base_config['DATA_SOURCE'],
+        endpoint_name=base_config['ENDPOINT_NAME'],
+        environment=base_config['ENVIRONMENT'],
+        max_threads=base_config['MAX_THREADS'],
+        chunk_size=base_config['CHUNK_SIZE'],
+        output_format=base_config['OUTPUT_FORMAT'],
         
-        # ÚNICO campo desde CLI
+        # Desde argumentos
         table_name=args.table_name,
+        load_mode=load_mode,
         
-        # Resto desde .env
-        max_threads=base_config.get('MAX_THREADS'),
-        chunk_size=base_config.get('CHUNK_SIZE'),
-        force_full_load=base_config.get('FORCE_FULL_LOAD', False),
-        output_format=base_config.get('OUTPUT_FORMAT', 'parquet'),
-        
-        # Campos opcionales
+        # Opcionales
         s3_raw_bucket=base_config.get('S3_RAW_BUCKET'),
         dynamo_logs_table=base_config.get('DYNAMO_LOGS_TABLE'),
         topic_arn=base_config.get('TOPIC_ARN'),
+        
+        # Deprecated pero mantener por compatibilidad
+        force_full_load=args.force_full_load
     )
 
 def validate_environment():
@@ -133,17 +166,39 @@ def print_configuration_summary(extraction_config: ExtractionConfig):
     """Print configuration summary"""
     logger = DataLakeLogger.get_logger(__name__)
     
+    # Emoji según load mode
+    mode_emoji = {
+        LoadMode.INITIAL: "🆕",
+        LoadMode.NORMAL: "🔄",
+        LoadMode.RESET: "♻️",
+        LoadMode.REPROCESS: "🔁"
+    }
+    
+    emoji = mode_emoji.get(extraction_config.load_mode, "❓")
+    
     logger.info("=" * 80)
     logger.info("📋 DATA EXTRACTION CONFIGURATION SUMMARY")
     logger.info("=" * 80)
     logger.info(f"📊 Table: {extraction_config.table_name}")
     logger.info(f"👥 Team: {extraction_config.team}")
     logger.info(f"📡 Source: {extraction_config.data_source}")
+    logger.info(f"🔌 Endpoint: {extraction_config.endpoint_name}")
     logger.info(f"🌍 Environment: {extraction_config.environment}")
+    logger.info(f"{emoji} Load Mode: {extraction_config.load_mode.value.upper()}")
     logger.info(f"📁 Format: {extraction_config.output_format}")
     logger.info(f"🧵 Threads: {extraction_config.max_threads}")
     logger.info(f"📦 Chunk Size: {extraction_config.chunk_size:,}")
-    logger.info(f"🔄 Full Load: {extraction_config.force_full_load}")
+    logger.info("=" * 80)
+    
+    # Explicar el load mode
+    mode_descriptions = {
+        LoadMode.INITIAL: "Primera carga - Extrae TODO y guarda watermark",
+        LoadMode.NORMAL: "Carga regular - Incremental desde watermark o full sin watermark",
+        LoadMode.RESET: "Reinicio - Limpia watermark, extrae TODO y guarda nuevo watermark",
+        LoadMode.REPROCESS: "Reprocesamiento - Usa configuración específica (ej: rango de fechas)"
+    }
+    
+    logger.info(f"ℹ️  {mode_descriptions.get(extraction_config.load_mode, 'Modo desconocido')}")
     logger.info("=" * 80)
 
 def print_results_summary(result, logger):
@@ -169,9 +224,6 @@ def main():
         extraction_config = create_extraction_config(args)
         setup_logging(args.log_level, extraction_config.table_name, 
                      extraction_config.team, extraction_config.data_source)
-        
-        logger = DataLakeLogger.get_logger(__name__)
-        DataLakeLogger.print_environment_info()
         
         # ÚNICO monitor centralizado
         monitor = setup_monitoring(extraction_config)
