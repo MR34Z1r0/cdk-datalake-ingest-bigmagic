@@ -10,25 +10,108 @@ logger = DataLakeLogger.get_logger(__name__)
 class TimeRangeStrategy(ExtractionStrategy):
     """Estrategia para carga por rango de fechas específico"""
     
-    def get_strategy_type(self) -> ExtractionStrategyType:
-        return ExtractionStrategyType.TIME_RANGE
-    
     def build_extraction_params(self) -> ExtractionParams:
         """Construye parámetros para carga por rango de tiempo"""
         logger.info(f"=== TIME RANGE STRATEGY - Building Params ===")
         logger.info(f"Table: {self.extraction_config.table_name}")
+        logger.info(f"Load Mode: {self.extraction_config.load_mode.value}")
         
-        # 🎯 TIME RANGE NO USA WATERMARKS - usa rangos específicos
+        # TIME RANGE NO USA WATERMARKS
         if self.watermark_storage:
-            logger.info("⚠️  Watermark storage provided but not used in time range strategy")
+            logger.info("⚠️ Watermark storage provided but not used in time range strategy")
         
-        # 🔧 CONSTRUIR TABLE NAME CON SCHEMA, TABLE (CON ALIAS) Y JOIN
+        # 🆕 MODO INITIAL: Carga histórica completa
+        if self.extraction_config.load_mode == LoadMode.INITIAL:
+            logger.info("🆕 INITIAL mode detected - Loading ALL historical data")
+            return self._build_initial_load_params()
+        
+        # Modo NORMAL: Detectar si necesita particionado
+        if self._should_use_partitioned_load():
+            logger.info("⚠️ Partitioned time range load detected - will be handled by orchestrator")
+            return self._build_partitioned_params()
+        
+        # Carga no particionada (normal)
+        logger.info("📋 Building non-partitioned time range params")
+        return self._build_non_partitioned_params()
+
+    def _build_initial_load_params(self) -> ExtractionParams:
+        """
+        Construye parámetros para CARGA INICIAL (modo INITIAL)
+        
+        Para tablas transaccionales: usa MIN/MAX sin filtros de fecha
+        Para tablas maestras: carga completa sin filtros de fecha
+        """
+        logger.info("🔧 Building INITIAL load params (historical data)")
+        
+        # Detectar si es tabla transaccional
+        is_transactional = self._should_use_partitioned_load()
+        
+        if is_transactional:
+            logger.info("📊 Transactional table detected - will use MIN/MAX partitioning")
+            return self._build_partitioned_initial_params()
+        else:
+            logger.info("📋 Master table - full load without date filters")
+            return self._build_non_partitioned_initial_params()
+
+    def _build_partitioned_initial_params(self) -> ExtractionParams:
+        """
+        Construye parámetros para carga inicial PARTICIONADA
+        
+        Carga TODO desde el inicio usando MIN/MAX, SIN filtros de fecha
+        """
+        logger.info("🔧 Building PARTITIONED INITIAL load params")
+        
+        # Construir table_name con JOIN
         table_name_with_joins = f"{self.table_config.source_schema}.{self.table_config.source_table}"
         
-        # 🔧 AGREGAR JOIN_EXPR SI EXISTE
         if hasattr(self.table_config, 'join_expr') and self.table_config.join_expr and self.table_config.join_expr.strip():
             table_name_with_joins += f" {self.table_config.join_expr.strip()}"
-            logger.info(f"Added JOIN expression: {self.table_config.join_expr.strip()}")
+            logger.info(f"📎 Table with JOIN: {table_name_with_joins}")
+        
+        # Construir metadata para particionado
+        metadata = {
+            **self._build_basic_metadata(),
+            'needs_partitioning': True,
+            'partition_column': self.table_config.partition_column,
+            'source_table_type': self.table_config.source_table_type,
+            'chunk_size': self.extraction_config.chunk_size,
+            'strategy_type': 'time_range',
+            'load_mode': 'initial'  # Marcar como initial
+        }
+        
+        # Crear params
+        params = ExtractionParams(
+            table_name=table_name_with_joins,
+            columns=self._parse_columns(),
+            metadata=metadata
+        )
+        
+        # 🔑 SOLO filtros básicos (FILTER_EXP), SIN filtros de fecha
+        basic_filters = self._build_basic_filters()
+        for filter_condition in basic_filters:
+            if filter_condition:
+                params.add_where_condition(filter_condition)
+                logger.info(f"➕ Basic filter: {filter_condition}")
+        
+        logger.info(f"✅ Partitioned INITIAL params built - will load ALL historical data")
+        logger.info(f"   Partition column: {self.table_config.partition_column}")
+        logger.info(f"   Total filters: {len(params.where_conditions)} (NO date filters)")
+        
+        return params
+
+    def _build_non_partitioned_initial_params(self) -> ExtractionParams:
+        """
+        Construye parámetros para carga inicial NO particionada
+        
+        Carga TODO desde el inicio, SIN filtros de fecha
+        """
+        logger.info("📋 Building NON-PARTITIONED INITIAL load params")
+        
+        # Construir table_name con JOIN
+        table_name_with_joins = f"{self.table_config.source_schema}.{self.table_config.source_table}"
+        
+        if hasattr(self.table_config, 'join_expr') and self.table_config.join_expr and self.table_config.join_expr.strip():
+            table_name_with_joins += f" {self.table_config.join_expr.strip()}"
         
         # Crear parámetros básicos
         params = ExtractionParams(
@@ -37,31 +120,33 @@ class TimeRangeStrategy(ExtractionStrategy):
             metadata=self._build_basic_metadata()
         )
         
-        # Agregar filtros de rango de tiempo (SIN watermarks)
-        time_range_filters = self._build_time_range_filters()
-        for filter_condition in time_range_filters:
-            params.add_where_condition(filter_condition)
+        # 🔑 SOLO filtros básicos (FILTER_EXP), SIN filtros de fecha
+        basic_filters = self._build_basic_filters()
+        for filter_condition in basic_filters:
+            if filter_condition:
+                params.add_where_condition(filter_condition)
+                logger.info(f"➕ Basic filter: {filter_condition}")
         
-        # 🔧 AGREGAR FILTER_EXP SI EXISTE
-        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp and self.table_config.filter_exp.strip():
-            filter_exp = self.table_config.filter_exp.strip().replace('"', '')
-            params.add_where_condition(f"({filter_exp})")
-            logger.info(f"Added filter expression: {filter_exp}")
-        
-        # 🔧 NO AGREGAR ORDER BY AQUÍ - se agrega en el adapter cuando se construye el query
-        # El adapter usa chunk_column para ORDER BY si existe chunking
-        
-        # Configurar chunking si es apropiado
-        if self._should_use_chunking():
-            params.chunk_size = self.extraction_config.chunk_size
-            params.chunk_column = self._get_chunking_column()
-            logger.info(f"Chunking enabled - Size: {params.chunk_size}, Column: {params.chunk_column}")
-        
-        logger.info(f"Time range extraction params built - Columns: {len(params.columns)}, Where conditions: {len(params.where_conditions)}")
-        logger.info(f"Final table_name with JOINs: {table_name_with_joins}")
-        logger.info("=== END TIME RANGE STRATEGY ===")
+        logger.info(f"✅ Non-partitioned INITIAL params built - will load ALL historical data")
+        logger.info(f"   Total filters: {len(params.where_conditions)} (NO date filters)")
         
         return params
+
+    def _build_basic_filters(self) -> List[str]:
+        """Construye SOLO filtros básicos (FILTER_EXP), sin filtros de fecha"""
+        filters = []
+        
+        # SOLO filtro básico de la configuración (FILTER_EXP)
+        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp:
+            clean_filter = self.table_config.filter_exp.replace('"', '').strip()
+            if clean_filter:
+                filters.append(clean_filter)
+                logger.info(f"Added basic filter from FILTER_EXP")
+        
+        return filters
+
+    def get_strategy_type(self) -> ExtractionStrategyType:
+        return ExtractionStrategyType.TIME_RANGE
     
     def validate(self) -> bool:
         """Valida configuración para carga por rango de tiempo"""
