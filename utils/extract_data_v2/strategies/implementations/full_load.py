@@ -17,26 +17,78 @@ class FullLoadStrategy(ExtractionStrategy):
         """Construye parámetros para carga completa"""
         logger.info(f"=== FULL LOAD STRATEGY - Building Params ===")
         logger.info(f"Table: {self.extraction_config.table_name}")
+        logger.info(f"Force Full Load: {self.extraction_config.force_full_load}")
+        
+        # 🎯 DETECTAR SI DEBERÍA GUARDAR WATERMARK
+        should_track_watermark = self._should_track_watermark()
+        
+        if should_track_watermark:
+            logger.info("✅ Full load will track watermark for future incremental loads")
+        else:
+            logger.info("ℹ️ Full load without watermark tracking")
         
         # Detectar si necesita particionado
         if self._should_use_partitioned_load():
             logger.info("⚠️ Partitioned full load detected - will be handled by orchestrator")
-            # Para particionado, retornar parámetros que indiquen que se necesita min/max
-            return self._build_partitioned_params()
+            return self._build_partitioned_params(should_track_watermark)  # ← Pasar el flag
+        
+        # 📋 CARGA NO PARTICIONADA
+        logger.info("📋 Building non-partitioned full load params")
+        
+        # Construir metadata base
+        metadata = self._build_basic_metadata()
+        
+        # 🔑 Marcar si debe rastrear watermark
+        if should_track_watermark:
+            metadata['should_track_watermark'] = True
+            metadata['watermark_column'] = self.table_config.partition_column
+            logger.info(f"📊 Watermark tracking enabled for column: {self.table_config.partition_column}")
         
         # Crear parámetros básicos
         params = ExtractionParams(
             table_name=self._get_source_table_name(),
             columns=self._parse_columns(),
-            metadata=self._build_basic_metadata()
+            metadata=metadata
         )
         
         # Agregar filtros básicos (sin fechas hardcodeadas)
         basic_filters = self._build_basic_filters()
         for filter_condition in basic_filters:
-            params.add_where_condition(filter_condition)
+            if filter_condition:
+                params.add_where_condition(filter_condition)
+                logger.info(f"➕ Added filter: {filter_condition}")
         
+        logger.info(f"✅ Full load params built - Columns: {len(params.columns)}, Filters: {len(params.where_conditions)}")
         return params
+    
+    def _should_track_watermark(self) -> bool:
+        """
+        Determina si esta carga completa debería rastrear watermark
+        
+        TRUE cuando:
+        - Es FORCE_FULL_LOAD (carga completa forzada de una tabla incremental)
+        - Existe partition_column configurado
+        - Hay watermark storage disponible
+        """
+        has_partition_column = (
+            hasattr(self.table_config, 'partition_column') and 
+            self.table_config.partition_column and 
+            self.table_config.partition_column.strip()
+        )
+        
+        has_watermark_storage = self.watermark_storage is not None
+        
+        is_forced_full = self.extraction_config.force_full_load
+        
+        should_track = has_partition_column and has_watermark_storage and is_forced_full
+        
+        logger.info(f"🔍 Watermark tracking decision:")
+        logger.info(f"   - Has partition column: {has_partition_column}")
+        logger.info(f"   - Has watermark storage: {has_watermark_storage}")
+        logger.info(f"   - Is forced full load: {is_forced_full}")
+        logger.info(f"   - Should track: {should_track}")
+        
+        return should_track
     
     def _should_use_partitioned_load(self) -> bool:
         """Detecta si la tabla requiere particionado"""
@@ -48,31 +100,68 @@ class FullLoadStrategy(ExtractionStrategy):
             self.table_config.partition_column.strip() != ''
         )
 
-    def _build_partitioned_params(self) -> ExtractionParams:
-        """Construye parámetros especiales para carga particionada"""
+    def _build_partitioned_params(self, should_track_watermark: bool = False) -> ExtractionParams:
+        """
+        Construye parámetros especiales para carga particionada
+        
+        Args:
+            should_track_watermark: Si debe rastrear watermark durante esta carga completa
+            
+        Returns:
+            ExtractionParams configurado para particionado
+        """
+        logger.info("🔧 Building partitioned params for full load")
         
         # Construir table_name con JOIN para particionado
         table_name_with_joins = f"{self.table_config.source_schema}.{self.table_config.source_table}"
+        
         if hasattr(self.table_config, 'join_expr') and self.table_config.join_expr and self.table_config.join_expr.strip():
             table_name_with_joins += f" {self.table_config.join_expr.strip()}"
+            logger.info(f"📎 Table with JOIN: {table_name_with_joins}")
         
+        # Construir metadata completo
+        metadata = {
+            **self._build_basic_metadata(),
+            'needs_partitioning': True,
+            'partition_column': self.table_config.partition_column,
+            'source_table_type': self.table_config.source_table_type,
+            'chunk_size': self.extraction_config.chunk_size
+        }
+        
+        # 🔑 Agregar watermark tracking si es necesario
+        if should_track_watermark:
+            metadata['should_track_watermark'] = True
+            metadata['watermark_column'] = self.table_config.partition_column
+            logger.info(f"📊 Partitioned load will track watermark for column: {self.table_config.partition_column}")
+        else:
+            logger.info(f"ℹ️ Partitioned load without watermark tracking")
+        
+        # Crear params
         params = ExtractionParams(
-            table_name=table_name_with_joins,  # ← Usar el nombre completo con JOINs
+            table_name=table_name_with_joins,
             columns=self._parse_columns(),
-            metadata={
-                **self._build_basic_metadata(),
-                'needs_partitioning': True,
-                'partition_column': self.table_config.partition_column,
-                'source_table_type': self.table_config.source_table_type
-            }
+            metadata=metadata
         )
         
-        # Solo agregar FILTER_EXP, no fechas hardcodeadas
-        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp:
-            filter_exp = self.table_config.filter_exp.strip().replace('"', '')
-            params.add_where_condition(f"({filter_exp})")
+        # Agregar filtros básicos (FILTER_EXP, sin fechas hardcodeadas)
+        basic_filters = self._build_basic_filters()
+        for filter_condition in basic_filters:
+            if filter_condition:  # Solo agregar si no está vacío
+                params.add_where_condition(filter_condition)
+                logger.info(f"➕ Added filter: {filter_condition}")
         
+        logger.info(f"✅ Partitioned params built successfully")
         return params
+
+    def _should_use_partitioned_load(self) -> bool:
+        """Detecta si la tabla requiere particionado"""
+        return (
+            hasattr(self.table_config, 'source_table_type') and 
+            self.table_config.source_table_type == 't' and
+            hasattr(self.table_config, 'partition_column') and 
+            self.table_config.partition_column and 
+            self.table_config.partition_column.strip() != ''
+        )
 
     def validate(self) -> bool:
         """Valida configuración para carga completa"""
