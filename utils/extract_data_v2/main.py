@@ -280,7 +280,7 @@ def main():
             return 0
          
         # Execute extraction
-        orchestrator = DataExtractionOrchestrator(extraction_config, monitor=monitor)
+        orchestrator = DataExtractionOrchestrator(extraction_config, monitor=monitor, process_guid=process_guid)
         result = orchestrator.execute()
         
         # Log success

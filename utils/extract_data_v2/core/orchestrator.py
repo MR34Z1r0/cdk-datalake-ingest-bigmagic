@@ -27,15 +27,19 @@ from config.settings import settings
 class DataExtractionOrchestrator:
     """Main orchestrator for the data extraction process"""
     
-    def __init__(self, extraction_config: ExtractionConfig, monitor: MonitorInterface = None):
+    def __init__(self, extraction_config: ExtractionConfig, monitor: MonitorInterface = None, process_guid: str = None):
         self.extraction_config = extraction_config
         self.monitor = monitor  # Recibir monitor desde main
+        self.process_guid = process_guid
         self.table_config: Optional[TableConfig] = None
         self.database_config: Optional[DatabaseConfig] = None
     
         # Inicializar logger - AGREGAR ESTA LÍNEA
         from aje_libs.common.datalake_logger import DataLakeLogger
         self.logger = DataLakeLogger.get_logger(__name__)
+        
+        if self.process_guid:
+            self.logger.info(f"🆔 Orchestrator initialized with process_guid: {self.process_guid}")
         
         # Components
         self.extractor: Optional[ExtractorInterface] = None
@@ -54,6 +58,11 @@ class DataExtractionOrchestrator:
         try:
             # Initialize all components
             self._initialize_components()
+            
+            self.logger.info(
+                f"🚀 Starting extraction - "
+                f"table: {self.extraction_config.table_name} "
+                f"process_guid: {self.process_guid}")
             
             # Log start
             self.monitor.log_start(
@@ -75,6 +84,13 @@ class DataExtractionOrchestrator:
             
         except Exception as e:
             error_message = f"Extraction failed: {str(e)}"
+            
+            self.logger.error(
+                f"❌ {error_message} "
+                f"table: {self.extraction_config.table_name} "
+                f"process_guid: {self.process_guid}",
+                exc_info=True
+            )
             
             # Log error
             if self.monitor:
@@ -375,6 +391,12 @@ class DataExtractionOrchestrator:
         # ✅ CORRECCIÓN: Solo eliminar archivos existentes si NO es incremental
         strategy_name = self.strategy.get_strategy_name().lower()
         
+        self.logger.info(
+            f"📊 Executing {strategy_name} strategy - "
+            f"table: {self.extraction_config.table_name} "
+            f"process_guid: {self.process_guid}"
+        )
+        
         if strategy_name in ['full', 'full_load']:
             self.logger.info("Full load strategy - deleting existing files")
             self.loader.delete_existing(destination_path)
@@ -475,6 +497,11 @@ class DataExtractionOrchestrator:
         query = query_metadata['query']
         metadata = query_metadata.get('metadata', {})
         
+        self.logger.info(
+            f"🔍 Thread {thread_id} - Starting query execution - "
+            f"process_guid: {self.process_guid}"
+        )
+        
         if metadata.get('query_type') == 'min_max' and metadata.get('needs_partitioned_queries'):
             return self._handle_min_max_query(query, metadata)
 
@@ -482,8 +509,11 @@ class DataExtractionOrchestrator:
         total_records = 0
         max_extracted_value = None
         
-        try:            
-            self.logger.info(f"🔍 DEBUG Strategy name: '{self.strategy.get_strategy_name()}'")
+        try:   
+            self.logger.info(
+                f"🔍 Thread {thread_id} - Strategy: {self.strategy.get_strategy_name()} - "
+                f"process_guid: {self.process_guid}"
+            )         
             self.logger.info(f"🔍 DEBUG Partition column: '{self.table_config.partition_column}'")
             self.logger.info(f"🔍 DEBUG Watermark storage available: {self.watermark_storage is not None}")
 
@@ -503,6 +533,11 @@ class DataExtractionOrchestrator:
             for chunk_df in data_iterator:
                 if chunk_df is not None and not chunk_df.empty:
                     self.logger.info(f"🔍 Processing chunk {chunk_count + 1} with {len(chunk_df)} rows")
+                    self.logger.info(
+                        f"🔍 Thread {thread_id} - Processing chunk {chunk_count + 1} "
+                        f"with {len(chunk_df)} rows - "
+                        f"process_guid: {self.process_guid}"
+                    )
                     
                     # 🎯 ACTUALIZAR MAX VALUE (para watermark)
                     if (self.table_config.partition_column and 
@@ -701,7 +736,10 @@ class DataExtractionOrchestrator:
 
     def _execute_partitioned_queries(self, partitioned_queries: List[Dict[str, Any]]) -> tuple:
         """Ejecuta las queries particionadas en paralelo"""
-        self.logger.info(f"🔍 Executing {len(partitioned_queries)} partitioned queries in parallel")
+        self.logger.info(
+            f"🔍 Executing {len(partitioned_queries)} partitioned queries in parallel - "
+            f"process_guid: {self.process_guid}"
+        )
         
         files_created = []
         total_records = 0
@@ -839,6 +877,7 @@ class DataExtractionOrchestrator:
     def _build_metadata(self) -> Dict[str, Any]:
         """Build metadata for logging"""
         metadata = {
+            'process_guid': self.process_guid,
             'project_name': self.extraction_config.project_name,
             'team': self.extraction_config.team,
             'data_source': self.extraction_config.data_source,
