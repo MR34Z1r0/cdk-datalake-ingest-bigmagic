@@ -755,9 +755,9 @@ class DataExtractionOrchestrator:
             for future in as_completed(future_to_query):
                 query = future_to_query[future]
                 try:
-                    file_path, record_count = future.result()
-                    if file_path:
-                        files_created.append(file_path)
+                    partition_files, record_count = future.result()
+                    if partition_files:
+                        files_created.extend(partition_files)
                     total_records += record_count
                 except Exception as e:
                     raise ExtractionError(f"Failed to execute partitioned query: {e}")
