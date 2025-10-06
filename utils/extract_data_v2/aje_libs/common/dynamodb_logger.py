@@ -201,26 +201,27 @@ class DynamoDBLogger:
         """Prepara el contexto limitando su tamaño para DynamoDB"""
         MAX_CONTEXT_SIZE = 300 * 1024  # 300KB
         
-        def truncate_data(data, max_length=1000):
-            """Trunca estructuras de datos"""
-            if isinstance(data, str):
-                return data[:max_length] + "...[TRUNCATED]" if len(data) > max_length else data
-            elif isinstance(data, dict):
-                truncated = {}
-                for k, v in list(data.items())[:10]:
-                    truncated[k] = truncate_data(v, 500)
-                if len(data) > 10:
-                    truncated["_truncated_items"] = f"...and {len(data) - 10} more items"
-                return truncated
-            elif isinstance(data, list):
-                truncated = [truncate_data(item, 200) for item in data[:5]]
-                if len(data) > 5:
-                    truncated.append(f"...and {len(data) - 5} more items")
-                return truncated
-            else:
-                return str(data)[:500] if data else data
+        #def truncate_data(data, max_length=1000):
+        #    """Trunca estructuras de datos"""
+        #    if isinstance(data, str):
+        #        return data[:max_length] + "...[TRUNCATED]" if len(data) > max_length else data
+        #    elif isinstance(data, dict):
+        #        truncated = {}
+        #        for k, v in list(data.items())[:10]:
+        #            truncated[k] = truncate_data(v, 500)
+        #        if len(data) > 10:
+        #            truncated["_truncated_items"] = f"...and {len(data) - 10} more items"
+        #        return truncated
+        #    elif isinstance(data, list):
+        #        truncated = [truncate_data(item, 200) for item in data[:5]]
+        #        if len(data) > 5:
+        #            truncated.append(f"...and {len(data) - 5} more items")
+        #        return truncated
+        #    else:
+        #        return str(data)[:500] if data else data
         
-        prepared_context = truncate_data(context)
+        #prepared_context = truncate_data(context)
+        prepared_context = context
         
         # Verificar tamaño total
         context_json = json.dumps(prepared_context, default=str)

@@ -8,8 +8,8 @@ class LoaderInterface(ABC):
     
     @abstractmethod
     def load_dataframe(self, df: pd.DataFrame, destination_path: str, 
-                      filename: Optional[str] = None, **kwargs) -> str:
-        """Load DataFrame to destination"""
+                      filename: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+        """Load DataFrame to destination and return metadata as dict"""
         pass
     
     @abstractmethod

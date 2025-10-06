@@ -2,6 +2,7 @@
 import boto3
 import uuid
 import time
+from decimal import Decimal
 from datetime import datetime 
 from models.file_metadata import FileMetadata
 from typing import List, Optional, Dict, Any
@@ -83,13 +84,13 @@ class S3Loader(LoaderInterface):
                 created_at=datetime.now().isoformat(),
                 compression=getattr(self.formatter, 'compression', 'none'),
                 format=self.formatter.get_file_extension().replace('.', ''),
-                extraction_duration_seconds=round(extraction_duration, 3),
-                upload_duration_seconds=round(upload_file_duration, 3),
+                extraction_duration_seconds=Decimal(str(round(extraction_duration, 3))),
+                upload_duration_seconds=Decimal(str(round(upload_file_duration, 3))),
                 columns_count=len(df.columns) if not df.empty else 0,
                 estimated_memory_mb=FileMetadata.estimate_memory_mb(df.shape)
             )
             
-            return full_s3_path, file_metadata
+            return file_metadata.to_dict()
             
         except Exception as e:
             raise LoadError(f"Failed to load DataFrame to S3: {e}")
