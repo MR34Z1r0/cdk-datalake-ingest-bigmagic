@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import boto3
 import uuid
+import time
+from models.file_metadata import FileMetadata
 from typing import List, Optional, Dict, Any
 import pandas as pd
 from interfaces.loader_interface import LoaderInterface
@@ -21,19 +23,15 @@ class S3Loader(LoaderInterface):
         self.formatter = formatter
     
     def load_dataframe(self, df: pd.DataFrame, destination_path: str, 
-                      filename: Optional[str] = None, **kwargs) -> str:
+                      filename: Optional[str] = None, **kwargs) -> tuple:
         """
-        Load DataFrame to S3
+        Load DataFrame to S3 with metadata capture
         
-        Args:
-            df: DataFrame to load
-            destination_path: S3 path (without s3:// prefix)
-            filename: Optional filename, will generate if not provided
-            **kwargs: Additional options
-            
         Returns:
-            Full S3 path of uploaded file
+            Tuple[str, FileMetadata]: (file_path, file_metadata)
         """
+        upload_start = time.time()
+        
         try:
             if not self.formatter:
                 raise LoadError("No formatter set for S3Loader")
@@ -49,13 +47,13 @@ class S3Loader(LoaderInterface):
                 filename += self.formatter.get_file_extension()
             
             # Format DataFrame
+            extraction_start = time.time()
             file_data = self.formatter.format_dataframe(df, **kwargs)
+            extraction_duration = time.time() - extraction_start
             
-            # Ensure destination path doesn't start with /
+            # Ensure destination path
             if destination_path.startswith('/'):
                 destination_path = destination_path[1:]
-            
-            # Ensure destination path ends with /
             if destination_path and not destination_path.endswith('/'):
                 destination_path += '/'
             
@@ -63,13 +61,34 @@ class S3Loader(LoaderInterface):
             s3_key = destination_path + filename
             
             # Upload to S3
+            upload_file_start = time.time()
             full_s3_path = self.s3_helper.put_object(
                 object_key=s3_key,
                 body=file_data,
                 extra_args={'ContentType': self.formatter.get_content_type()}
             )
+            upload_file_duration = time.time() - upload_file_start
             
-            return full_s3_path
+            # 🆕 Crear metadata del archivo
+            file_metadata = FileMetadata(
+                file_path=full_s3_path,
+                file_name=filename,
+                file_size_bytes=len(file_data),
+                file_size_mb=FileMetadata.calculate_file_size_mb(len(file_data)),
+                records_count=len(df),
+                thread_id=str(kwargs.get('thread_id', 0)),
+                chunk_id=kwargs.get('chunk_id', 0),
+                partition_index=kwargs.get('partition_index'),
+                created_at=datetime.now().isoformat(),
+                compression=getattr(self.formatter, 'compression', 'none'),
+                format=self.formatter.get_file_extension().replace('.', ''),
+                extraction_duration_seconds=round(extraction_duration, 3),
+                upload_duration_seconds=round(upload_file_duration, 3),
+                columns_count=len(df.columns) if not df.empty else 0,
+                estimated_memory_mb=FileMetadata.estimate_memory_mb(df.shape)
+            )
+            
+            return full_s3_path, file_metadata
             
         except Exception as e:
             raise LoadError(f"Failed to load DataFrame to S3: {e}")
