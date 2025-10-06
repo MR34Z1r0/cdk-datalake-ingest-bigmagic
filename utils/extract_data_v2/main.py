@@ -11,6 +11,7 @@ import sys
 import time
 import logging
 import traceback
+import uuid
 from datetime import datetime
 from typing import Optional
 
@@ -26,10 +27,6 @@ from exceptions.custom_exceptions import (
 from config.settings import settings
 from models.load_mode import LoadMode
 import argparse
-
-# ❌ ELIMINAR ESTAS DOS LÍNEAS - No crear logger aquí
-# logger = DataLakeLogger.get_logger(__name__)
-# DataLakeLogger.print_environment_info()
 
 def parse_arguments():
     """Parse command line arguments"""
@@ -112,7 +109,7 @@ def setup_logging(log_level: str, table_name: str, team: str, data_source: str):
         force_local_mode=False
     )
 
-def setup_monitoring(extraction_config: ExtractionConfig) -> MonitorInterface:
+def setup_monitoring(extraction_config: ExtractionConfig, process_guid: str) -> MonitorInterface:
     """Setup monitoring infrastructure"""
     monitor = MonitorFactory.create(
         monitor_type=settings.get('MONITOR_TYPE', 'dynamodb'),
@@ -122,7 +119,8 @@ def setup_monitoring(extraction_config: ExtractionConfig) -> MonitorInterface:
         team=extraction_config.team,
         data_source=extraction_config.data_source,
         endpoint_name=extraction_config.endpoint_name,
-        environment=extraction_config.environment
+        environment=extraction_config.environment,
+        process_guid=process_guid
     )
     return monitor
 
@@ -186,7 +184,7 @@ def validate_environment():
     
     logger.info("✅ Environment validation passed")
 
-def print_configuration_summary(extraction_config: ExtractionConfig):
+def print_configuration_summary(extraction_config: ExtractionConfig, process_guid: str):
     """Print configuration summary"""
     logger = DataLakeLogger.get_logger(__name__)
     
@@ -203,6 +201,7 @@ def print_configuration_summary(extraction_config: ExtractionConfig):
     logger.info("=" * 80)
     logger.info("📋 DATA EXTRACTION CONFIGURATION SUMMARY")
     logger.info("=" * 80)
+    logger.info(f"🆔 Process GUID: {process_guid}")
     logger.info(f"📊 Table: {extraction_config.table_name}")
     logger.info(f"👥 Team: {extraction_config.team}")
     logger.info(f"📡 Source: {extraction_config.data_source}")
@@ -225,10 +224,11 @@ def print_configuration_summary(extraction_config: ExtractionConfig):
     logger.info(f"ℹ️  {mode_descriptions.get(extraction_config.load_mode, 'Modo desconocido')}")
     logger.info("=" * 80)
 
-def print_results_summary(result, logger):
+def print_results_summary(result, logger, process_guid: str):
     """Print extraction results"""
     logger.info("=" * 80)
     logger.info("🎉 EXTRACTION COMPLETED SUCCESSFULLY")
+    logger.info(f"🆔 Process GUID: {process_guid}") 
     logger.info(f"📊 Records: {result.records_extracted:,}")
     logger.info(f"📁 Files: {len(result.files_created)}")
     logger.info(f"⏱️ Time: {result.execution_time_seconds:.2f}s")
@@ -241,6 +241,7 @@ def main():
     monitor: Optional[MonitorInterface] = None
     extraction_config = None
     process_id = None
+    process_guid = str(uuid.uuid4())
     
     try:
         # Setup inicial
@@ -259,13 +260,15 @@ def main():
         logger = DataLakeLogger.get_logger(__name__)
         DataLakeLogger.print_environment_info()
         
+        logger.info(f"🆔 Process GUID generado: {process_guid}")
+
         # Setup monitoring
-        monitor = setup_monitoring(extraction_config)
+        monitor = setup_monitoring(extraction_config, process_guid)
         
         logger.info("🚀 Starting Data Extraction Process")
         
         validate_environment()
-        print_configuration_summary(extraction_config)
+        print_configuration_summary(extraction_config, process_guid)
         
         # Dry run mode
         if args.dry_run:
@@ -273,7 +276,7 @@ def main():
             orchestrator = DataExtractionOrchestrator(extraction_config)
             orchestrator._load_configurations()
             logger.info("✅ Configuration validation successful")
-            logger.info("🧪 DRY RUN COMPLETED - No data was extracted")
+            logger.info(f"🧪 DRY RUN COMPLETED - No data was extracted (process_guid: {process_guid})")
             return 0
          
         # Execute extraction
@@ -281,7 +284,7 @@ def main():
         result = orchestrator.execute()
         
         # Log success
-        print_results_summary(result, logger)
+        print_results_summary(result, logger, process_guid)
         
         return 0
         
@@ -290,14 +293,15 @@ def main():
         print(f"❌ {error_msg}")
         
         if logger:
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"{error_msg} (process_guid: {process_guid})", exc_info=True)
         
         if monitor:
             monitor.log_error(
                 table_name=extraction_config.table_name if extraction_config else "unknown",
                 job_name="data_extraction",
                 error_message=error_msg,
-                context={"error_type": "ConfigurationError"}
+                context={"error_type": "ConfigurationError",
+                    "process_guid": process_guid}
             )
         
         return 1
@@ -307,14 +311,15 @@ def main():
         print(f"❌ {error_msg}")
         
         if logger:
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"{error_msg} (process_guid: {process_guid})", exc_info=True)
         
         if monitor:
             monitor.log_error(
                 table_name=extraction_config.table_name if extraction_config else "unknown",
                 job_name="data_extraction",
                 error_message=error_msg,
-                context={"error_type": "ConnectionError"}
+                context={"error_type": "ConnectionError",
+                    "process_guid": process_guid}
             )
         
         return 2
@@ -324,14 +329,15 @@ def main():
         print(f"❌ {error_msg}")
         
         if logger:
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"{error_msg} (process_guid: {process_guid})", exc_info=True)
         
         if monitor:
             monitor.log_error(
                 table_name=extraction_config.table_name if extraction_config else "unknown",
                 job_name="data_extraction",
                 error_message=error_msg,
-                context={"error_type": "ExtractionError"}
+                context={"error_type": "ExtractionError",
+                    "process_guid": process_guid}
             )
         
         return 3
@@ -341,14 +347,15 @@ def main():
         print(f"❌ {error_msg}")
         
         if logger:
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"{error_msg} (process_guid: {process_guid})", exc_info=True)
         
         if monitor:
             monitor.log_error(
                 table_name=extraction_config.table_name if extraction_config else "unknown",
                 job_name="data_extraction",
                 error_message=error_msg,
-                context={"error_type": "LoadError"}
+                context={"error_type": "LoadError",
+                    "process_guid": process_guid}
             )
         
         return 4
@@ -359,7 +366,7 @@ def main():
         print(f"Traceback: {traceback.format_exc()}")
         
         if logger:
-            logger.error(error_msg, exc_info=True)
+            logger.error(f"{error_msg} (process_guid: {process_guid})", exc_info=True)
         
         if monitor:
             monitor.log_error(
@@ -368,7 +375,8 @@ def main():
                 error_message=error_msg,
                 context={
                     "error_type": "UnexpectedError",
-                    "traceback": traceback.format_exc()
+                    "traceback": traceback.format_exc(),
+                    "process_guid": process_guid
                 }
             )
         

@@ -3,6 +3,7 @@
 import json
 import boto3
 import pytz
+import uuid
 from datetime import datetime
 from typing import Dict, Any, Optional
 from botocore.exceptions import ClientError
@@ -24,7 +25,8 @@ class DynamoDBLogger:
         flow_name: str = "",
         environment: str = "",
         region: str = "us-east-1",
-        logger_name: Optional[str] = None
+        logger_name: Optional[str] = None,
+        process_guid: Optional[str] = None
     ):
         """
         Inicializa el DynamoDB Logger
@@ -46,6 +48,7 @@ class DynamoDBLogger:
         self.endpoint_name = endpoint_name
         self.flow_name = flow_name
         self.environment = environment
+        self.process_guid = process_guid or str(uuid.uuid4())
         
         # Configurar timezone Lima
         self.tz_lima = pytz.timezone('America/Lima')
@@ -102,14 +105,13 @@ class DynamoDBLogger:
             
             # Preparar contexto con límites de tamaño
             log_context = self._prepare_enhanced_context(context or {}, status, table_name)
-            
-            # Truncar mensaje si es muy largo
-            #truncated_message = message[:2000] + "...[TRUNCATED]" if len(message) > 2000 else message
+             
             truncated_message = message
             
             # Crear registro compatible con tu estructura existente
             record = {
                 "PROCESS_ID": process_id,
+                "PROCESS_GUID": self.process_guid,
                 "DATE_SYSTEM": timestamp,
                 "RESOURCE_NAME": job_name or "unknown_job",
                 "RESOURCE_TYPE": "python_shell_glue_job" if "glue" in self.flow_name.lower() else "python_process",
@@ -122,13 +124,14 @@ class DynamoDBLogger:
                 "ENDPOINT_NAME": self.endpoint_name,
                 "TABLE_NAME": table_name,
                 "ENVIRONMENT": self.environment,
-                "log_created_at": now_lima.strftime("%Y-%m-%d %H:%M:%S")
+                "LOG_CREATED_AT": now_lima.strftime("%Y-%m-%d %H:%M:%S")
             }
             
             # Insertar en DynamoDB
             self.dynamodb_table.put_item(Item=record)
             self.logger.info(f"Log registrado en DynamoDB", {
                 "process_id": process_id, 
+                "process_guid": self.process_guid,
                 "status": status,
                 "table": table_name
             })

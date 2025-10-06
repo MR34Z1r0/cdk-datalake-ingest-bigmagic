@@ -13,6 +13,7 @@ import re
 
 import boto3
 import pytz
+import uuid
 from awsglue.context import GlueContext
 from awsglue.job import Job
 from awsglue.transforms import *
@@ -1608,6 +1609,7 @@ def main():
     monitor = None
     dynamo_logger = None
     process_id = None
+    process_guid = str(uuid.uuid4())
     
     try:
         # Obtener argumentos de Glue
@@ -1628,6 +1630,8 @@ def main():
         # Obtener logger principal
         logger = DataLakeLogger.get_logger(__name__)
         
+        logger.info(f"🆔 Process GUID generado: {process_guid}")
+
         # Configurar DynamoDB Logger
         dynamo_logger = DynamoDBLogger(
             table_name=args.get("DYNAMO_LOGS_TABLE"),
@@ -1637,7 +1641,8 @@ def main():
             endpoint_name=args.get("ENDPOINT_NAME"),
             flow_name="light_transform",
             environment=args.get("ENVIRONMENT"),
-            logger_name=f"{args.get('TEAM')}-transform-dynamo"
+            logger_name=f"{args.get('TEAM')}-transform-dynamo",
+            process_guid=process_guid
         )
         
         monitor = Monitor(dynamo_logger)
@@ -1650,7 +1655,8 @@ def main():
                 "environment": args.get('ENVIRONMENT'),
                 "team": args.get('TEAM'),
                 "data_source": args.get('DATA_SOURCE'),
-                "endpoint_name": args.get('ENDPOINT_NAME')  # 👈 endpoint en contexto
+                "endpoint_name": args.get('ENDPOINT_NAME'),
+                "process_guid": process_guid  # 👈 endpoint en contexto
             }
         )
 
@@ -1691,12 +1697,12 @@ def main():
         
         processor.process_table(args)
          
-        logger.info(f"✅ Light Transform completado exitosamente table: {args['TABLE_NAME']} process_id: {process_id}")
+        logger.info(f"✅ Light Transform completado exitosamente table: {args['TABLE_NAME']} process_id: {process_id} process_guid: {process_guid}")
         
     except Exception as e:
         error_msg = str(e)
         if logger:
-            logger.error(f"❌ Error en Light Transform: {error_msg} table: {args.get('TABLE_NAME', 'unknown')} job: {args.get('JOB_NAME', 'unknown')} error_type: {type(e).__name__}")
+            logger.error(f"❌ Error en Light Transform: {error_msg} table: {args.get('TABLE_NAME', 'unknown')} job: {args.get('JOB_NAME', 'unknown')} error_type: {type(e).__name__} process_guid: {process_guid}")
         
         # Registrar error en DynamoDB (esto enviará SNS automáticamente)
         if dynamo_logger:
@@ -1706,7 +1712,8 @@ def main():
                 job_name=args.get('JOB_NAME', 'unknown'),
                 context={
                     "error_type": type(e).__name__,
-                    "failed_at": dt.datetime.now().isoformat()
+                    "failed_at": dt.datetime.now().isoformat(),
+                    "process_guid": process_guid
                 }
             )
         
