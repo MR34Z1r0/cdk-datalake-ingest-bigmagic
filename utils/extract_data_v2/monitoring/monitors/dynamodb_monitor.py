@@ -1,4 +1,5 @@
 # monitoring/monitors/dynamodb_monitor.py
+
 from typing import Dict, Any
 from interfaces.monitor_interface import MonitorInterface
 from models.extraction_result import ExtractionResult
@@ -74,18 +75,19 @@ class DynamoDBMonitor(MonitorInterface):
     def log_success(self, result: ExtractionResult) -> str:
         """Log successful extraction"""
         try:
-            context = {
-                'records_extracted': result.records_extracted,
-                'files_created_count': len(result.files_created),
-                'files_created': result.files_created[:10] if result.files_created else [],  # Primeros 10
-                'execution_time_seconds': result.execution_time_seconds,
-                'strategy_used': result.strategy_used,
-                'start_time': result.start_time.isoformat() if result.start_time else None,
-                'end_time': result.end_time.isoformat() if result.end_time else None,
-                'project_name': self.project_name,
-                'process_type': self._get_process_type(result.strategy_used),
-                **(result.metadata or {})
-            }
+            context = self._build_context(
+                result.table_name, 
+                result.strategy_used,
+                {
+                    'records_extracted': result.records_extracted,
+                    'total_records': result.records_extracted,
+                    'files_created': len(result.files_created),
+                    'file_paths': result.files_created,
+                    'execution_time_seconds': result.execution_time_seconds,
+                    'start_time': result.start_time.isoformat() if result.start_time else None,
+                    'end_time': result.end_time.isoformat() if result.end_time else None
+                }
+            )
             
             process_id = self.dynamo_logger.log_success(
                 table_name=result.table_name,
@@ -94,12 +96,12 @@ class DynamoDBMonitor(MonitorInterface):
             )
             
             self.logger.info(
-                f"Extracción exitosa registrada",
+                f"Éxito de extracción registrado",
                 {
-                    "table": result.table_name,
+                    "table": result.table_name, 
                     "records": result.records_extracted,
-                    "files": len(result.files_created),
-                    "process_id": process_id
+                    "process_id": process_id,
+                    "strategy": result.strategy_used
                 }
             )
             
@@ -107,19 +109,32 @@ class DynamoDBMonitor(MonitorInterface):
             
         except Exception as e:
             self.logger.error(f"Error al registrar éxito: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return ""
     
-    def log_error(self, table_name: str, error_message: str, metadata: Dict[str, Any] = None) -> str:
-        """Log extraction error"""
+    def log_error(self, table_name: str, error_message: str, metadata: Dict[str, Any] = None, job_name: str = None) -> str:
+        """
+        Log extraction error
+        
+        Args:
+            table_name: Nombre de la tabla
+            error_message: Mensaje de error
+            metadata: Metadata adicional
+            job_name: Nombre del job (opcional)
+        """
         try:
             context = self._build_context(table_name, "error", metadata or {})
             context['error_details'] = error_message
             context['project_name'] = self.project_name
             
+            # Usar job_name si se proporciona, sino generar uno
+            effective_job_name = job_name or f"extract_{metadata.get('strategy', 'unknown')}"
+            
             process_id = self.dynamo_logger.log_failure(
                 table_name=table_name,
                 error_message=error_message,
-                job_name="extract_data",
+                job_name=effective_job_name,
                 context=context
             )
             
@@ -134,17 +149,28 @@ class DynamoDBMonitor(MonitorInterface):
             self.logger.error(f"Error al registrar fallo: {e}")
             return ""
     
-    def log_warning(self, table_name: str, warning_message: str, metadata: Dict[str, Any] = None) -> str:
-        """Log extraction warning"""
+    def log_warning(self, table_name: str, warning_message: str, metadata: Dict[str, Any] = None, job_name: str = None) -> str:
+        """
+        Log extraction warning
+        
+        Args:
+            table_name: Nombre de la tabla
+            warning_message: Mensaje de advertencia
+            metadata: Metadata adicional
+            job_name: Nombre del job (opcional)
+        """
         try:
             context = self._build_context(table_name, "warning", metadata or {})
             context['warning_details'] = warning_message
             context['project_name'] = self.project_name
             
+            # Usar job_name si se proporciona, sino generar uno
+            effective_job_name = job_name or f"extract_{metadata.get('strategy', 'unknown')}"
+            
             process_id = self.dynamo_logger.log_warning(
                 table_name=table_name,
                 warning_message=warning_message,
-                job_name="extract_data",
+                job_name=effective_job_name,
                 context=context
             )
             
@@ -168,7 +194,6 @@ class DynamoDBMonitor(MonitorInterface):
         if is_error:
             self.logger.info("Notificación de error ya enviada automáticamente por DynamoDBLogger")
         else:
-            # Para notificaciones informativas, podrías implementar lógica adicional aquí
             self.logger.info(f"Notificación informativa: {message[:100]}")
     
     def _get_process_type(self, strategy: str) -> str:

@@ -564,7 +564,7 @@ class DataExtractionOrchestrator:
             else:
                 self.logger.info("🔍 No watermark to save")
             
-            return files_created[0] if files_created else None, total_records
+            return files_created, total_records
             
         except Exception as e:
             self.logger.error(f"❌ Error in query execution: {e}")
@@ -733,7 +733,7 @@ class DataExtractionOrchestrator:
         query = query_metadata['query']
         metadata = query_metadata.get('metadata', {})
         
-        self.logger.info(f"🔍 DEBUG: Partition query: {query[:100]}...")
+        self.logger.info(f"🔍 DEBUG: Partition query: {query}")
         
         files_created = []
         total_records = 0
@@ -786,7 +786,7 @@ class DataExtractionOrchestrator:
                 if file_path:
                     files_created.append(file_path)
             
-            return files_created[0] if files_created else None, total_records
+            return files_created, total_records
             
         except Exception as e:
             self.logger.error(f"🔍 ERROR in _execute_partition_query for thread {thread_id}: {e}")
