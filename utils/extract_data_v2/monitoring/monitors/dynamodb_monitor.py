@@ -72,12 +72,12 @@ class DynamoDBMonitor(MonitorInterface):
             self.logger.error(f"Error al registrar inicio: {e}")
             return ""
     
-    def log_success(self, result: ExtractionResult) -> str:
-        """Log successful extraction"""
+    def log_success(self, result: ExtractionResult):
+        """Log successful extraction with enriched metadata"""
         try:
             context = self._build_context(
                 result.table_name, 
-                result.strategy_used,
+                "success",
                 {
                     'records_extracted': result.records_extracted,
                     'total_records': result.records_extracted,
@@ -85,7 +85,13 @@ class DynamoDBMonitor(MonitorInterface):
                     'file_paths': result.files_created,
                     'execution_time_seconds': result.execution_time_seconds,
                     'start_time': result.start_time.isoformat() if result.start_time else None,
-                    'end_time': result.end_time.isoformat() if result.end_time else None
+                    'end_time': result.end_time.isoformat() if result.end_time else None,
+                    
+                    # 🆕 Metadata enriquecida de archivos
+                    'files_metadata': result.files_metadata,
+                    'total_size_mb': result.get_total_size_mb(),
+                    'average_file_size_mb': result.get_average_file_size_mb(),
+                    'files_count': len(result.files_created)
                 }
             )
             
@@ -95,22 +101,10 @@ class DynamoDBMonitor(MonitorInterface):
                 context=context
             )
             
-            self.logger.info(
-                f"Éxito de extracción registrado",
-                {
-                    "table": result.table_name, 
-                    "records": result.records_extracted,
-                    "process_id": process_id,
-                    "strategy": result.strategy_used
-                }
-            )
-            
             return process_id
             
         except Exception as e:
             self.logger.error(f"Error al registrar éxito: {e}")
-            import traceback
-            self.logger.error(traceback.format_exc())
             return ""
     
     def log_error(self, table_name: str, error_message: str, metadata: Dict[str, Any] = None, job_name: str = None) -> str:

@@ -300,7 +300,7 @@ def main():
                 table_name=extraction_config.table_name if extraction_config else "unknown",
                 job_name="data_extraction",
                 error_message=error_msg,
-                context={"error_type": "ConfigurationError",
+                metadata={"error_type": "ConfigurationError",
                     "process_guid": process_guid}
             )
         
@@ -318,7 +318,7 @@ def main():
                 table_name=extraction_config.table_name if extraction_config else "unknown",
                 job_name="data_extraction",
                 error_message=error_msg,
-                context={"error_type": "ConnectionError",
+                metadata={"error_type": "ConnectionError",
                     "process_guid": process_guid}
             )
         
@@ -336,7 +336,7 @@ def main():
                 table_name=extraction_config.table_name if extraction_config else "unknown",
                 job_name="data_extraction",
                 error_message=error_msg,
-                context={"error_type": "ExtractionError",
+                metadata={"error_type": "ExtractionError",
                     "process_guid": process_guid}
             )
         
@@ -354,7 +354,7 @@ def main():
                 table_name=extraction_config.table_name if extraction_config else "unknown",
                 job_name="data_extraction",
                 error_message=error_msg,
-                context={"error_type": "LoadError",
+                metadata={"error_type": "LoadError",
                     "process_guid": process_guid}
             )
         
@@ -373,7 +373,7 @@ def main():
                 table_name=extraction_config.table_name if extraction_config else "unknown",
                 job_name="data_extraction",
                 error_message=error_msg,
-                context={
+                metadata={
                     "error_type": "UnexpectedError",
                     "traceback": traceback.format_exc(),
                     "process_guid": process_guid
