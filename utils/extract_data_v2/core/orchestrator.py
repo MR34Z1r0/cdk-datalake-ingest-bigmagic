@@ -457,34 +457,45 @@ class DataExtractionOrchestrator:
         """Execute queries with controlled parallel processing"""
         max_workers = min(self.extraction_config.max_threads, len(queries))
         files_created = []
+        all_files_metadata = []  # 🆕 Agregar lista para metadata
         total_records = 0
         
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all query tasks
             future_to_query = {
                 executor.submit(self._execute_single_query, i, query): query
                 for i, query in enumerate(queries)
             }
             
-            # Process completed tasks
             for future in as_completed(future_to_query):
                 query = future_to_query[future]
                 try:
-                    query_files, record_count = future.result()
+                    # 🔧 FIX: Ahora recibe 3 valores
+                    query_files, query_metadata, record_count = future.result()
+                    
                     if query_files:
                         if isinstance(query_files, list):
                             files_created.extend(query_files)
                         else:
                             files_created.append(query_files)
+                    
+                    # 🆕 Agregar metadata
+                    if query_metadata:
+                        if isinstance(query_metadata, list):
+                            all_files_metadata.extend(query_metadata)
+                        else:
+                            all_files_metadata.append(query_metadata)
+                            
                     total_records += record_count
                 except Exception as e:
                     raise ExtractionError(f"Failed to execute query: {e}")
         
         # Handle empty result case
         if total_records == 0:
-            files_created, total_records = self._handle_empty_result()
+            empty_files, empty_records = self._handle_empty_result()
+            files_created = empty_files
+            total_records = empty_records
         
-        return files_created, total_records
+        return files_created, all_files_metadata, total_records
     
     def _execute_single_query(self, thread_id: int, query_metadata: Dict[str, Any]) -> tuple:
         """Execute a single query and load the data"""
@@ -764,78 +775,6 @@ class DataExtractionOrchestrator:
         
         return files_created, all_files_metadata, total_records
 
-    def _execute_partition_query(self, thread_id: int, query_metadata: Dict[str, Any]) -> tuple:
-        """Ejecuta una query particionada individual"""
-        self.logger.info(f"🔍 DEBUG: Starting _execute_partition_query for thread {thread_id}")
-        
-        query = query_metadata['query']
-        metadata = query_metadata.get('metadata', {})
-        
-        files_created = []
-        files_metadata = []  # Lista para metadata básica
-        total_records = 0
-        
-        try:
-            chunk_size = metadata.get('chunk_size', self.extraction_config.chunk_size)
-            chunking_params = metadata.get('chunking_params', {})
-            order_by = chunking_params.get('order_by')
-            
-            destination_path = metadata.get('destination_path', self._build_destination_path())
-            partition_index = metadata.get('partition_index')
-            
-            chunk_count = 0
-            for chunk_df in self.extractor.extract_data(query, chunk_size, order_by):
-                chunk_count += 1
-                
-                if chunk_df is not None and not chunk_df.empty:
-                    self.logger.info(f"🔍 DEBUG: Processing chunk {chunk_count} with {len(chunk_df)} rows")
-                    
-                    # 🔧 Cargar chunk (retorna solo file_path por ahora)
-                    file_path = self.loader.load_dataframe(
-                        chunk_df, 
-                        destination_path, 
-                        thread_id=f"{thread_id}_{chunk_count-1}",
-                        chunk_id=chunk_count-1
-                    )
-                    
-                    if file_path:
-                        files_created.append(file_path)
-                        
-                        # 🔧 Construir metadata básica localmente
-                        file_name = file_path.split('/')[-1] if '/' in file_path else file_path
-                        file_metadata = {
-                            'file_path': file_path,
-                            'file_name': file_name,
-                            'records_count': len(chunk_df),
-                            'columns_count': len(chunk_df.columns),
-                            'thread_id': str(thread_id),
-                            'chunk_id': chunk_count - 1,
-                            'partition_index': partition_index,
-                            'created_at': datetime.now().isoformat()
-                        }
-                        files_metadata.append(file_metadata)
-                    
-                    total_records += len(chunk_df)
-                    
-                    self.logger.info(
-                        f"📁 File created: {file_name} | "
-                        f"Records: {len(chunk_df):,} | "
-                        f"Columns: {len(chunk_df.columns)}"
-                    )
-            
-            self.logger.info(
-                f"✅ Thread {thread_id} completed: "
-                f"{total_records:,} records, {len(files_created)} files"
-            )
-            
-            return files_created, files_metadata, total_records
-            
-        except Exception as e:
-            self.logger.error(f"❌ ERROR in _execute_partition_query for thread {thread_id}: {e}")
-            import traceback
-            self.logger.error(f"🔍 Traceback: {traceback.format_exc()}")
-            raise ExtractionError(f"Failed to execute partition query for thread {thread_id}: {e}")
-
     def _handle_empty_result(self) -> tuple:
         """Handle case where no data was extracted"""
         files_created = []
@@ -909,3 +848,110 @@ class DataExtractionOrchestrator:
                 self.extractor.close()
             except Exception:
                 pass
+     
+    def _execute_partition_query(self, thread_id: int, query_metadata: Dict[str, Any]) -> tuple:
+        """Ejecuta una query particionada individual con metadata completa"""
+        self.logger.info(f"🔍 DEBUG: Starting _execute_partition_query for thread {thread_id}")
+        
+        query = query_metadata['query']
+        metadata = query_metadata.get('metadata', {})
+        
+        files_created = []
+        files_metadata = []
+        total_records = 0
+        
+        try:
+            chunk_size = metadata.get('chunk_size', self.extraction_config.chunk_size)
+            chunking_params = metadata.get('chunking_params', {})
+            order_by = chunking_params.get('order_by')
+            
+            destination_path = metadata.get('destination_path', self._build_destination_path())
+            partition_index = metadata.get('partition_index')
+            
+            chunk_count = 0
+            for chunk_df in self.extractor.extract_data(query, chunk_size, order_by):
+                chunk_count += 1
+                
+                if chunk_df is not None and not chunk_df.empty:
+                    self.logger.info(f"🔍 DEBUG: Processing chunk {chunk_count} with {len(chunk_df)} rows")
+                    
+                    # Cargar chunk
+                    file_path = self.loader.load_dataframe(
+                        chunk_df, 
+                        destination_path, 
+                        thread_id=f"{thread_id}_{chunk_count-1}",
+                        chunk_id=chunk_count-1
+                    )
+                    
+                    if file_path:
+                        files_created.append(file_path)
+                        
+                        # 🆕 Obtener tamaño del archivo desde S3
+                        file_size_bytes = self._get_s3_file_size(file_path)
+                        file_size_mb = round(file_size_bytes / (1024 * 1024), 2) if file_size_bytes else 0
+                        
+                        # Construir metadata completa
+                        file_name = file_path.split('/')[-1] if '/' in file_path else file_path
+                        file_metadata = {
+                            'file_path': file_path,
+                            'file_name': file_name,
+                            'file_size_bytes': file_size_bytes,
+                            'file_size_mb': file_size_mb,
+                            'records_count': len(chunk_df),
+                            'columns_count': len(chunk_df.columns),
+                            'thread_id': str(thread_id),
+                            'chunk_id': chunk_count - 1,
+                            'partition_index': partition_index,
+                            'created_at': datetime.now().isoformat(),
+                            'compression': 'snappy',  # Por defecto en parquet
+                            'format': 'parquet'
+                        }
+                        files_metadata.append(file_metadata)
+                    
+                    total_records += len(chunk_df)
+                    
+                    self.logger.info(
+                        f"📁 File created: {file_name} | "
+                        f"Size: {file_size_mb}MB | "
+                        f"Records: {len(chunk_df):,} | "
+                        f"Columns: {len(chunk_df.columns)}"
+                    )
+            
+            self.logger.info(
+                f"✅ Thread {thread_id} completed: {total_records:,} records, "
+                f"{len(files_created)} files, "
+                f"{sum(f['file_size_mb'] for f in files_metadata):.2f}MB total"
+            )
+            
+            return files_created, files_metadata, total_records
+            
+        except Exception as e:
+            self.logger.error(f"❌ ERROR in _execute_partition_query for thread {thread_id}: {e}")
+            import traceback
+            self.logger.error(f"🔍 Traceback: {traceback.format_exc()}")
+            raise ExtractionError(f"Failed to execute partition query for thread {thread_id}: {e}")
+
+    def _get_s3_file_size(self, s3_path: str) -> int:
+        """Obtiene el tamaño de un archivo en S3"""
+        try:
+            # Remover prefijo s3://
+            if s3_path.startswith('s3://'):
+                s3_path = s3_path[5:]
+            
+            # Separar bucket y key
+            parts = s3_path.split('/', 1)
+            if len(parts) != 2:
+                return 0
+                
+            bucket_name, key = parts
+            
+            # Obtener metadata del archivo
+            import boto3
+            s3_client = boto3.client('s3')
+            response = s3_client.head_object(Bucket=bucket_name, Key=key)
+            
+            return response['ContentLength']
+            
+        except Exception as e:
+            self.logger.warning(f"No se pudo obtener tamaño de archivo {s3_path}: {e}")
+            return 0
