@@ -2,6 +2,7 @@
 from dataclasses import dataclass
 from typing import List, Optional, Dict, Any
 from datetime import datetime
+from decimal import Decimal
 
 @dataclass
 class ExtractionResult:
@@ -34,14 +35,16 @@ class ExtractionResult:
             'files_metadata': self.files_metadata
         }
     
-    def get_total_size_mb(self) -> float:
+    def get_total_size_mb(self) -> Decimal:  # ✅ Cambiar a Decimal
         """Get total size of all files in MB"""
         if not self.files_metadata:
-            return 0.0
-        return sum(f.get('file_size_mb', 0) for f in self.files_metadata)
-    
-    def get_average_file_size_mb(self) -> float:
+            return Decimal('0.0')
+        total = sum(f.get('file_size_mb', 0) for f in self.files_metadata)
+        return Decimal(str(total)) if isinstance(total, float) else total
+
+    def get_average_file_size_mb(self) -> Decimal:  # ✅ Cambiar a Decimal
         """Get average file size in MB"""
         if not self.files_metadata or len(self.files_metadata) == 0:
-            return 0.0
-        return self.get_total_size_mb() / len(self.files_metadata)
+            return Decimal('0.0')
+        avg = self.get_total_size_mb() / Decimal(str(len(self.files_metadata)))
+        return avg

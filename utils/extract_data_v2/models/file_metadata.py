@@ -23,9 +23,6 @@ class FileMetadata:
     
     def to_dict(self) -> Dict[str, Any]:
         data = asdict(self)
-        print("*"*80)
-        print(data)
-        print("*"*80)
         return data
     
     @staticmethod

@@ -5,9 +5,31 @@ import boto3
 import pytz
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from typing import Dict, Any, Optional
 from botocore.exceptions import ClientError
 from .datalake_logger import DataLakeLogger
+  
+def sanitize_for_dynamodb(obj):
+    """
+    Sanitiza objetos para DynamoDB convirtiendo tipos no soportados.
+    
+    - float -> Decimal
+    - inf/nan -> None
+    - Recursivo para dict y list
+    """
+    if isinstance(obj, dict):
+        return {k: sanitize_for_dynamodb(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_for_dynamodb(item) for item in obj]
+    elif isinstance(obj, float):
+        # Manejar casos especiales
+        if obj != obj or obj == float('inf') or obj == float('-inf'):
+            return None
+        return Decimal(str(obj))
+    elif isinstance(obj, set):
+        return {sanitize_for_dynamodb(item) for item in obj if item is not None}
+    return obj
 
 class DynamoDBLogger:
     """
@@ -71,7 +93,7 @@ class DynamoDBLogger:
             self.logger.warning(f"Error inicializando clientes AWS: {e}")
             self.dynamodb_table = None
             self.sns_client = None
-    
+  
     def log_process_status(
         self,
         status: str,  # RUNNING, SUCCESS, FAILED, WARNING
@@ -221,7 +243,9 @@ class DynamoDBLogger:
         #        return str(data)[:500] if data else data
         
         #prepared_context = truncate_data(context)
-        prepared_context = context
+        sanitized_context = sanitize_for_dynamodb(context)
+    
+        prepared_context = sanitized_context
         
         # Verificar tamaño total
         context_json = json.dumps(prepared_context, default=str)
@@ -267,16 +291,18 @@ class DynamoDBLogger:
             })
         
         elif status.upper() == "SUCCESS":
-            enhanced_context.update({
+            success_data = {
                 "end_time": context.get("end_time", datetime.now(self.tz_lima).isoformat()),
-                "duration_seconds": context.get("duration_seconds"),
-                "records_processed": context.get("records_processed", 0),
-                "records_inserted": context.get("records_inserted", 0),
-                "records_updated": context.get("records_updated", 0),
-                "files_generated": context.get("files_generated", 0),
-                "data_size_mb": context.get("data_size_mb"),
                 "success_rate": context.get("success_rate", "100%")
-            })
+            }
+            if context.get("duration_seconds"):
+                success_data["duration_seconds"] = context.get("duration_seconds")
+            if context.get("records_processed"):
+                success_data["records_processed"] = context.get("records_processed")
+            if context.get("data_size_mb"):
+                success_data["data_size_mb"] = context.get("data_size_mb")
+            
+            enhanced_context.update(success_data)
         
         elif status.upper() == "FAILED":
             enhanced_context.update({
@@ -287,7 +313,7 @@ class DynamoDBLogger:
                 "records_processed_before_failure": context.get("records_processed", 0),
                 "retry_count": context.get("retry_count", 0),
                 "is_retryable": context.get("is_retryable", False),
-                "stack_trace": context.get("stack_trace", "")[:500]  # Limitado para no exceder tamaño
+                "stack_trace": context.get("stack_trace", "")[:1000]  # Limitado para no exceder tamaño
             })
         
         elif status.upper() == "WARNING":
