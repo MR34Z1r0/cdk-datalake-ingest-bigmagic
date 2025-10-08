@@ -85,10 +85,7 @@ class DynamoDBMonitor(MonitorInterface):
                     'file_paths': result.files_created,
                     'execution_time_seconds': result.execution_time_seconds,
                     'start_time': result.start_time.isoformat() if result.start_time else None,
-                    'end_time': result.end_time.isoformat() if result.end_time else None,
-                    
-                    # 🆕 Metadata enriquecida de archivos
-                    'files_metadata': result.files_metadata,
+                    'end_time': result.end_time.isoformat() if result.end_time else None, 
                     'total_size_mb': result.get_total_size_mb(),
                     'average_file_size_mb': result.get_average_file_size_mb(),
                     'files_count': len(result.files_created)

@@ -624,7 +624,7 @@ class DataExtractionOrchestrator:
             if not df_results or df_results[0].empty:
                 self.logger.warning(f"⚠️ MIN/MAX query returned no results. Skipping table.")
                 # Retornar resultado vacío pero válido
-                return [], 0
+                return [], [],0
             
             # 2. Extraer valores MIN/MAX
             df = df_results[0]
@@ -634,7 +634,7 @@ class DataExtractionOrchestrator:
             if min_val is None or max_val is None:
                 self.logger.warning(f"⚠️ No valid data found for partitioning (MIN/MAX returned None). Skipping table.")
                 # Retornar resultado vacío pero válido
-                return [], 0
+                return [], [],0
 
             min_val = int(min_val)
             max_val = int(max_val)

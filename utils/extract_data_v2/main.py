@@ -16,6 +16,15 @@ from datetime import datetime
 from typing import Optional
 
 from aje_libs.common.datalake_logger import DataLakeLogger
+
+# Configuración temprana con valores por defecto
+DataLakeLogger.configure_global(
+    log_level=logging.INFO,
+    service_name="extract_data",  # 🔑 Configurar ANTES
+    auto_detect_env=True,
+    force_local_mode=False
+)
+
 from monitoring.monitor_factory import MonitorFactory
 from interfaces.monitor_interface import MonitorInterface
 from core.orchestrator import DataExtractionOrchestrator
@@ -102,11 +111,8 @@ def setup_logging(log_level: str, table_name: str, team: str, data_source: str):
     
     DataLakeLogger.configure_global(
         log_level=log_level_map.get(log_level, logging.INFO),
-        service_name="extract_data",
         correlation_id=f"{team}-{data_source}-extract_data-{table_name}",
-        owner=team,
-        auto_detect_env=True,
-        force_local_mode=False
+        owner=team
     )
 
 def setup_monitoring(extraction_config: ExtractionConfig, process_guid: str) -> MonitorInterface:
