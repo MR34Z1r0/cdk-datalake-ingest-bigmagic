@@ -283,9 +283,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
                 f"arn:aws:glue:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:job/*",
             ],
             "states": [
-                f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:*",
-                #Legacy falta averiguar recurso correcto
-                "arn:aws:states:us-east-2:832257724409:stateMachine:aje-dev-datalake-workflow_legacy_load_bigmagic-sf"
+                f"arn:aws:states:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:stateMachine:*"
                 ],
             "lakeformation": [
                 f"arn:aws:lakeformation:{self.PROJECT_CONFIG.region_name}:{self.PROJECT_CONFIG.account_id}:resource:*",
@@ -541,9 +539,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
             environment={
                 'DATALAKE_AWS_REGION': Stack.of(self).region,
                 'DATALAKE_AWS_ACCOUNT_ID': Stack.of(self).account,
-                'DATALAKE_ENVIRONMENT': self.PROJECT_CONFIG.environment.value,
-                # The domain step function ARN can be set here if known, otherwise it will be constructed dynamically
-                'LEGACY_STEP_FUNCTION_ARN': 'arn:aws:states:us-east-2:832257724409:stateMachine:aje-dev-datalake-workflow_legacy_load_bigmagic-sf'
+                'DATALAKE_ENVIRONMENT': self.PROJECT_CONFIG.environment.value
             }
         )
         
@@ -652,9 +648,7 @@ class CdkDatalakeIngestBigmagicStack(Stack):
             environment={
                 'DATALAKE_AWS_REGION': Stack.of(self).region,
                 'DATALAKE_AWS_ACCOUNT_ID': Stack.of(self).account,
-                'DATALAKE_ENVIRONMENT': self.PROJECT_CONFIG.environment.value,
-                # The domain step function ARN can be set here if known, otherwise it will be constructed dynamically
-                'LEGACY_STEP_FUNCTION_ARN': 'arn:aws:states:us-east-2:832257724409:stateMachine:aje-dev-datalake-workflow_legacy_load_bigmagic-sf'
+                'DATALAKE_ENVIRONMENT': self.PROJECT_CONFIG.environment.value
             }
         )
         

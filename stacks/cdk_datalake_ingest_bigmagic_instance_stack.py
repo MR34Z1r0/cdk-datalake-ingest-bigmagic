@@ -561,7 +561,7 @@ class CdkDatalakeIngestBigmagicInstanceStack(Stack):
         try:
             csv_path = f'{self.paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/programmer.csv'
             
-            with open(csv_path, newline='', encoding='utf-8') as csvfile:
+            with open(csv_path, newline='', encoding='latin1') as csvfile:
                 reader = csv.DictReader(csvfile, delimiter=';')
                 for row in reader:
                     row_instance = row.get('INSTANCE', '').upper()

@@ -569,7 +569,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         """Load tables for current process_id with STATUS = 'a'"""
         tables = []
 
-        with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/tables.csv', newline='', encoding='utf-8') as csvfile:
+        with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/tables.csv', newline='', encoding='latin1') as csvfile:
             reader = csv.DictReader(csvfile, delimiter=';')
             for row in reader:
                 if not (row['SOURCE_SCHEMA'] and row['SOURCE_TABLE']):
@@ -595,7 +595,7 @@ class CdkDatalakeIngestBigmagicGroupStack(Stack):
         creds = None
         current_env = self.PROJECT_CONFIG.environment.value# Get current environment (DEV/PROD)
 
-        with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/credentials.csv', newline='', encoding='utf-8') as csvfile:
+        with open(f'{self.Paths.LOCAL_ARTIFACTS_CONFIGURE_CSV}/credentials.csv', newline='', encoding='latin1') as csvfile:
             reader = csv.DictReader(csvfile, delimiter=';')
             for row in reader:
                 # Match both ENDPOINT_NAME and ENV
