@@ -239,7 +239,8 @@ class DynamoDBLogger:
         flow_name: str = "",
         environment: str = "",
         region: str = "us-east-1",
-        logger_name: Optional[str] = None
+        logger_name: Optional[str] = None,
+        process_guid: Optional[str] = None
     ):
         """Inicializa el DynamoDB Logger"""
         self.table_name = table_name
@@ -249,6 +250,7 @@ class DynamoDBLogger:
         self.endpoint_name = endpoint_name
         self.flow_name = flow_name
         self.environment = environment
+        self.process_guid = process_guid or str(uuid.uuid4())
         
         # Configurar timezone Lima
         self.tz_lima = pytz.timezone('America/Lima')
@@ -290,17 +292,18 @@ class DynamoDBLogger:
             # Generar timestamp y process_id únicos
             now_lima = dt.datetime.now(pytz.utc).astimezone(self.tz_lima)
             timestamp = now_lima.strftime("%Y%m%d_%H%M%S_%f")
-            process_id = f"{self.team}-{self.data_source}-{self.endpoint_name}-{table_name.upper()}"
+            process_id = f"{self.team}-{self.data_source}-{self.endpoint_name}-{table_name}"
             
             # Preparar contexto con límites de tamaño
             log_context = self._prepare_context(context or {})
             
             # Truncar mensaje si es muy largo
-            truncated_message = message[:2000] + "...[TRUNCATED]" if len(message) > 2000 else message
+            truncated_message = message  if len(message) > 2000 else message
             
             # Crear registro compatible con estructura existente
             record = {
                 "PROCESS_ID": process_id,
+                "PROCESS_GUID": self.process_guid,
                 "DATE_SYSTEM": timestamp,
                 "RESOURCE_NAME": job_name or "unknown_job",
                 "RESOURCE_TYPE": "python_shell_glue_job",
@@ -313,7 +316,7 @@ class DynamoDBLogger:
                 "ENDPOINT_NAME": self.endpoint_name,
                 "TABLE_NAME": table_name,
                 "ENVIRONMENT": self.environment,
-                "log_created_at": now_lima.strftime("%Y-%m-%d %H:%M:%S")
+                "LOG_CREATED_AT": now_lima.strftime("%Y-%m-%d %H:%M:%S")
             }
             
             # Insertar en DynamoDB
@@ -558,6 +561,10 @@ class TransformationException(Exception):
 
 class DataValidationException(Exception):
     """Excepción para errores de validación de datos"""
+    pass
+
+class EmptyTableException(Exception):
+    """Excepción cuando no hay datos para procesar"""
     pass
 
 class ConfigurationManager:
@@ -1373,7 +1380,8 @@ class DataProcessor:
             # Leer datos source
             source_df = self._read_source_data(s3_paths['raw'])
             
-            if source_df.count() == 0:
+            records_count = source_df.count()
+            if records_count == 0:
                 self.logger.warning(f"⚠️ No se encontraron datos para procesar table: {table_name}")
                 
                 if not DeltaTable.isDeltaTable(self.spark, s3_paths['stage']):
@@ -1382,16 +1390,9 @@ class DataProcessor:
                     partition_columns = [col.name for col in columns_metadata if col.is_partition]
                     self.delta_manager.write_delta_table(empty_df, s3_paths['stage'], partition_columns)
                 
-                self.dynamo_logger.log_warning(
-                    table_name=table_name,
-                    warning_message="No data detected to migrate",
-                    job_name=args['JOB_NAME'],
-                    context={"empty_data_handled": True}
-                )
-                self.logger.info(f"✅ Proceso completado - tabla vacía manejada correctamente")    
-                return
+                # ✅ LANZAR EXCEPCIÓN ESPECÍFICA para que main() maneje el WARNING
+                raise DataValidationException("No data detected to migrate - empty table")
             
-            records_count = source_df.count()
             self.logger.info(f"📊 Datos fuente leídos table: {table_name} records_count: {records_count}")
             
             # Aplicar transformaciones
@@ -1413,21 +1414,9 @@ class DataProcessor:
             # Optimizar tabla Delta
             self.delta_manager.optimize_delta_table(s3_paths['stage'])
             self.logger.info(f"🎯 Tabla Delta optimizada table: {table_name}")
-            
-            # Registrar éxito
-            self.dynamo_logger.log_success(
-                table_name=table_name,
-                job_name=args['JOB_NAME'],
-                context={
-                    "end_time": dt.datetime.now().isoformat(),
-                    "records_processed": final_count,
-                    "transformation_errors_count": len(transformation_errors),
-                    "output_format": "delta"
-                }
-            )
-            
+        
         except Exception as e:
-            # Dejar que la excepción se propague para ser manejada en main()
+            # Propagar la excepción para que sea manejada en main()
             raise
     
     def _load_configurations(self, args: Dict[str, str]) -> Tuple[TableConfig, EndpointConfig, List[ColumnMetadata]]:
@@ -1610,6 +1599,7 @@ def main():
     dynamo_logger = None
     process_id = None
     process_guid = str(uuid.uuid4())
+    start_time = dt.datetime.now()
     
     try:
         # Obtener argumentos de Glue
@@ -1647,16 +1637,17 @@ def main():
         
         monitor = Monitor(dynamo_logger)
 
+        # ✅ CONTEXT limpio sin duplicados
         process_id = monitor.log_start(
             table_name=args['TABLE_NAME'],
             job_name=args['JOB_NAME'],
             context={
-                "start_time": dt.datetime.now().isoformat(),
-                "environment": args.get('ENVIRONMENT'),
-                "team": args.get('TEAM'),
-                "data_source": args.get('DATA_SOURCE'),
-                "endpoint_name": args.get('ENDPOINT_NAME'),
-                "process_guid": process_guid  # 👈 endpoint en contexto
+                "start_time": start_time.isoformat(),
+                "process_guid": process_guid,
+                "s3_raw_bucket": args.get('S3_RAW_BUCKET'),
+                "s3_stage_bucket": args.get('S3_STAGE_BUCKET'),
+                "tables_csv_location": args.get('TABLES_CSV_S3'),
+                "flow_type": "light_transform"
             }
         )
 
@@ -1696,28 +1687,91 @@ def main():
         )
         
         processor.process_table(args)
+
+        # ✅ Calcular duración
+        end_time = dt.datetime.now()
+        execution_duration = (end_time - start_time).total_seconds()
+
+        # ✅ CONTEXT limpio con métricas del proceso
+        if monitor:
+            monitor.log_success(
+                table_name=args['TABLE_NAME'],
+                job_name=args['JOB_NAME'],
+                context={
+                    "end_time": end_time.isoformat(),
+                    "process_guid": process_guid,
+                    "execution_duration_seconds": execution_duration,
+                    "status": "completed_successfully",
+                    "delta_optimized": True,
+                    "spark_app_id": spark.sparkContext.applicationId if spark else None
+                }
+            )
          
-        logger.info(f"✅ Light Transform completado exitosamente table: {args['TABLE_NAME']} process_id: {process_id} process_guid: {process_guid}")
+        logger.info(f"✅ Light Transform completado exitosamente table: {args['TABLE_NAME']} process_id: {process_id} process_guid: {process_guid} duration: {execution_duration:.2f}s")
+    
+    # ✅ ORDEN CORRECTO: Excepciones específicas PRIMERO, generales DESPUÉS
+    except DataValidationException as e:
+        # ✅ Caso especial: tabla vacía - registrar WARNING en lugar de FAILED
+        error_msg = str(e)
+        if logger:
+            logger.warning(f"⚠️ Validación de datos: {error_msg} table: {args.get('TABLE_NAME', 'unknown')}")
         
+        # Verificar si es específicamente tabla vacía
+        if "empty table" in error_msg.lower() or "no data" in error_msg.lower():
+            if monitor:
+                monitor.log_warning(
+                    table_name=args.get('TABLE_NAME', 'unknown'),
+                    warning_message=error_msg,
+                    job_name=args.get('JOB_NAME', 'unknown'),
+                    context={
+                        "warning_type": "empty_table",
+                        "empty_data_handled": True,
+                        "process_guid": process_guid,
+                        "execution_duration_seconds": (dt.datetime.now() - start_time).total_seconds() if start_time else None
+                    }
+                )
+            
+            if logger:
+                logger.info("ℹ️ Job terminando como SUCCESS - tabla vacía manejada correctamente")
+        else:
+            # Otro tipo de error de validación - registrar como FAILED
+            if monitor:
+                monitor.log_error(
+                    table_name=args.get('TABLE_NAME', 'unknown'),
+                    error_message=error_msg,
+                    job_name=args.get('JOB_NAME', 'unknown'),
+                    context={
+                        "error_type": "DataValidationException",
+                        "failed_at": dt.datetime.now().isoformat(),
+                        "process_guid": process_guid,
+                        "execution_duration_before_failure": (dt.datetime.now() - start_time).total_seconds() if start_time else None,
+                        "spark_app_id": spark.sparkContext.applicationId if 'spark' in locals() and spark else None
+                    }
+                )
+            
+            if logger:
+                logger.info("ℹ️ Job terminando como SUCCESS para evitar dobles notificaciones")
+    
     except Exception as e:
+        # ✅ Cualquier otra excepción - registrar como FAILED
         error_msg = str(e)
         if logger:
             logger.error(f"❌ Error en Light Transform: {error_msg} table: {args.get('TABLE_NAME', 'unknown')} job: {args.get('JOB_NAME', 'unknown')} error_type: {type(e).__name__} process_guid: {process_guid}")
         
-        # Registrar error en DynamoDB (esto enviará SNS automáticamente)
-        if dynamo_logger:
-            dynamo_logger.log_failure(
+        if monitor:
+            monitor.log_error(
                 table_name=args.get('TABLE_NAME', 'unknown'),
                 error_message=error_msg,
                 job_name=args.get('JOB_NAME', 'unknown'),
                 context={
                     "error_type": type(e).__name__,
                     "failed_at": dt.datetime.now().isoformat(),
-                    "process_guid": process_guid
+                    "process_guid": process_guid,
+                    "execution_duration_before_failure": (dt.datetime.now() - start_time).total_seconds() if start_time else None,
+                    "spark_app_id": spark.sparkContext.applicationId if 'spark' in locals() and spark else None
                 }
             )
         
-        # El job debe terminar exitosamente para evitar dobles notificaciones
         if logger:
             logger.info("ℹ️ Job terminando como SUCCESS para evitar dobles notificaciones")
         

@@ -41,9 +41,8 @@ def execute_step_function(process_id, instance, endpoint_name):
     # Preparar los datos de entrada
     input_data = {
         "process_id": process_id,
-        "endpoint_name": endpoint_name,
         "instance": instance,
-        "scheduled_execution": False,
+        "scheduled_execution": True,
         "run_extract": False
     }
     
@@ -79,7 +78,6 @@ def main():
     parser = argparse.ArgumentParser(description='Ejecutar Step Function de AWS')
     parser.add_argument('--process-id', required=True, help='ID del proceso')
     parser.add_argument('--instance', required=True, help='Instancia (ej: PE)')
-    parser.add_argument('--endpoint', required=True, help='Nombre del endpoint (ej: PEBDDATA2)')
     
     args = parser.parse_args()
     

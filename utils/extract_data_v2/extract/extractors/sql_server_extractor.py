@@ -145,7 +145,7 @@ class SQLServerExtractor(ExtractorInterface):
                     self.connect()
                 
                 self.logger.info(f"🔍 Query Attempt {attempt + 1}/{self.max_retries}")
-                self.logger.info(f"Query preview: {query}...")
+                self.logger.info(f"Query preview: {query}")
                 
                 start_time = datetime.now()
                 
