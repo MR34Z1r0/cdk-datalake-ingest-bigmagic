@@ -84,8 +84,7 @@ def main():
     # Ejecutar el Step Function
     execute_step_function(
         process_id=args.process_id,
-        instance=args.instance,
-        endpoint_name=args.endpoint
+        instance=args.instance
     )
 
 if __name__ == "__main__":

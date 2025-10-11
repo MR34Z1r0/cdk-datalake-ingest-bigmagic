@@ -12,3 +12,4 @@ cdk.out
 *.log
 *.env
 *.bat
+log/*

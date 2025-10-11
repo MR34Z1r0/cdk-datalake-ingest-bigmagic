@@ -1,0 +1,4 @@
+=========================================================== 
+[s b. 11/10/2025 11:41:43.49] Iniciando proceso de ingestiÃ³n inicial 
+=========================================================== 
+[s b. 11/10/2025 11:41:43.50] ERROR: No se encontrÃ³ el entorno virtual en "D:\WORKSPACE-GIT\VALORX\cdk-datalake-ingest-bigmagic\utils\extract_data_v2\..\.venv\Scripts\python.exe" 
