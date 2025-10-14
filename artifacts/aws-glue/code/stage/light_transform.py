@@ -292,7 +292,7 @@ class DynamoDBLogger:
             # Generar timestamp y process_id únicos
             now_lima = dt.datetime.now(pytz.utc).astimezone(self.tz_lima)
             timestamp = now_lima.strftime("%Y%m%d_%H%M%S_%f")
-            process_id = f"{self.team}-{self.data_source}-{self.endpoint_name}-{table_name}"
+            process_id = f"{self.team}-{self.data_source}-{self.endpoint_name}-{table_name}".lower()
             
             # Preparar contexto con límites de tamaño
             log_context = self._prepare_context(context or {})
