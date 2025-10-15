@@ -1381,16 +1381,23 @@ class DataProcessor:
             source_df = self._read_source_data(s3_paths['raw'])
             
             records_count = source_df.count()
+            
+            # ✅ MANEJO DE TABLA VACÍA - Verificar si existe Delta Table
             if records_count == 0:
                 self.logger.warning(f"⚠️ No se encontraron datos para procesar table: {table_name}")
                 
-                if not DeltaTable.isDeltaTable(self.spark, s3_paths['stage']):
-                    # Crear DataFrame vacío con esquema
+                # Verificar si ya existe la tabla Delta
+                if DeltaTable.isDeltaTable(self.spark, s3_paths['stage']):
+                    self.logger.info(f"✅ Tabla Delta ya existe en {s3_paths['stage']}, no se requiere acción")
+                else:
+                    self.logger.info(f"📝 Creando tabla Delta vacía en {s3_paths['stage']}")
+                    # Crear DataFrame vacío con esquema correcto
                     empty_df = self._create_empty_dataframe(columns_metadata)
                     partition_columns = [col.name for col in columns_metadata if col.is_partition]
                     self.delta_manager.write_delta_table(empty_df, s3_paths['stage'], partition_columns)
+                    self.logger.info(f"✅ Tabla Delta vacía creada exitosamente")
                 
-                # ✅ LANZAR EXCEPCIÓN ESPECÍFICA para que main() maneje el WARNING
+                # Lanzar excepción para que main() maneje el WARNING
                 raise DataValidationException("No data detected to migrate - empty table")
             
             self.logger.info(f"📊 Datos fuente leídos table: {table_name} records_count: {records_count}")
@@ -1418,6 +1425,38 @@ class DataProcessor:
         except Exception as e:
             # Propagar la excepción para que sea manejada en main()
             raise
+
+    def _write_to_stage(self, df, s3_stage_path: str, table_config: TableConfig, columns_metadata: List[ColumnMetadata]):
+        """Escribe datos a stage"""
+        partition_columns = [col.name for col in columns_metadata if col.is_partition]
+        
+        self.logger.info(f"🔍 DEBUG _write_to_stage - partitions: {partition_columns}")
+        self.logger.info(f"🔍 DEBUG _write_to_stage - s3_path: {s3_stage_path}")
+        self.logger.info(f"🔍 DEBUG _write_to_stage - schema: {df.schema}")
+        self.logger.info(f"🔍 DEBUG _write_to_stage - load_type: {table_config.load_type}")
+
+        # Verificar que el DataFrame no esté vacío antes de escribir
+        count = df.count()
+        self.logger.info(f"🔍 DEBUG _write_to_stage - df.count: {count}")
+        
+        # ✅ SIMPLIFICADO: Ya no necesitamos crear tabla vacía aquí
+        # porque process_table lo maneja antes de llegar a este punto
+        if count == 0:
+            self.logger.warning(f"⚠️ DataFrame vacío en _write_to_stage - esto no debería ocurrir")
+            return
+        
+        if DeltaTable.isDeltaTable(self.spark, s3_stage_path):
+            if table_config.load_type in ['incremental', 'between-date']:
+                # Merge incremental
+                id_columns = [col.name for col in columns_metadata if col.is_id]
+                merge_condition = " AND ".join([f"old.{col} = new.{col}" for col in id_columns])
+                self.delta_manager.merge_delta_table(df, s3_stage_path, merge_condition)
+            else:
+                # Overwrite completo
+                self.delta_manager.write_delta_table(df, s3_stage_path, partition_columns, "overwrite")
+        else:
+            # Crear nueva tabla
+            self.delta_manager.write_delta_table(df, s3_stage_path, partition_columns, "overwrite")
     
     def _load_configurations(self, args: Dict[str, str]) -> Tuple[TableConfig, EndpointConfig, List[ColumnMetadata]]:
         """Carga todas las configuraciones necesarias"""
@@ -1532,38 +1571,6 @@ class DataProcessor:
         
         return df
     
-    def _write_to_stage(self, df, s3_stage_path: str, table_config: TableConfig, columns_metadata: List[ColumnMetadata]):
-        """Escribe datos a stage"""
-        partition_columns = [col.name for col in columns_metadata if col.is_partition]
-        
-        # 👇 AGREGAR ESTE LOGGING
-        self.logger.info(f"🔍 DEBUG _write_to_stage - partitions: {partition_columns}")
-        self.logger.info(f"🔍 DEBUG _write_to_stage - s3_path: {s3_stage_path}")
-        self.logger.info(f"🔍 DEBUG _write_to_stage - schema: {df.schema}")
-        self.logger.info(f"🔍 DEBUG _write_to_stage - load_type: {table_config.load_type}")
-
-        # Verificar que el DataFrame no esté vacío antes de escribir
-        count = df.count()
-        self.logger.info(f"🔍 DEBUG _write_to_stage - df.count: {count}")
-        if count == 0:
-            self.logger.warning(f"⚠️ DataFrame vacío, creando tabla vacía")
-            empty_df = self._create_empty_dataframe(columns_metadata)
-            self.delta_manager.write_delta_table(empty_df, s3_stage_path, partition_columns, "overwrite")
-            return
-        
-        if DeltaTable.isDeltaTable(self.spark, s3_stage_path):
-            if table_config.load_type in ['incremental', 'between-date']:
-                # Merge incremental
-                id_columns = [col.name for col in columns_metadata if col.is_id]
-                merge_condition = " AND ".join([f"old.{col} = new.{col}" for col in id_columns])
-                self.delta_manager.merge_delta_table(df, s3_stage_path, merge_condition)
-            else:
-                # Overwrite completo
-                self.delta_manager.write_delta_table(df, s3_stage_path, partition_columns, "overwrite")
-        else:
-            # Crear nueva tabla
-            self.delta_manager.write_delta_table(df, s3_stage_path, partition_columns, "overwrite")
-     
     def _create_empty_dataframe(self, columns_metadata: List[ColumnMetadata]):
         """Crea DataFrame vacío con esquema"""
         fields = []
@@ -1664,6 +1671,7 @@ def main():
             .config("spark.sql.adaptive.skewJoin.enabled", "true") \
             .config("spark.sql.adaptive.localShuffleReader.enabled", "true") \
             .config("spark.serializer", "org.apache.spark.serializer.KryoSerializer") \
+            .config("spark.sql.legacy.timeParserPolicy", "LEGACY") \
             .getOrCreate()
         
         # Configurar sistema de archivos S3
