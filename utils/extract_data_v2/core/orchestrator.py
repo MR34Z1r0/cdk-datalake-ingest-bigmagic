@@ -279,6 +279,7 @@ class DataExtractionOrchestrator:
             columns=self._process_columns_field(table_row.get('COLUMNS', '')),
             load_type=load_type,
             source_table_type=table_row.get('SOURCE_TABLE_TYPE', ''),
+            partition_mode=table_row.get('PARTITION_MODE', 'AUTO'),
             id_column=table_row.get('ID_COLUMN'),
             partition_column=table_row.get('PARTITION_COLUMN'),
             filter_exp=table_row.get('FILTER_EXP'),

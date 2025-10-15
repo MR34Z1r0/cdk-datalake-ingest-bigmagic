@@ -115,3 +115,20 @@ class StrategyFactory:
     def get_supported_strategies(cls) -> list:
         """Obtiene lista de estrategias soportadas"""
         return [st.value for st in StrategyRegistry.get_available_strategies()]
+    
+    @classmethod
+    def validate_partition_mode(cls, table_config: TableConfig, extraction_config: ExtractionConfig):
+        """🆕 NUEVO MÉTODO: Valida la configuración de PARTITION_MODE"""
+        
+        partition_mode = getattr(table_config, 'partition_mode', 'AUTO').upper()
+        
+        # Validar que PARTITION_MODE solo se use con FULL o TIME_RANGE
+        if partition_mode != 'AUTO' and table_config.load_type not in ['full', 'time_range']:
+            logger.warning(f"PARTITION_MODE={partition_mode} ignored for load_type={table_config.load_type}")
+        
+        # Validar que MIN_MAX tenga PARTITION_COLUMN
+        if partition_mode == 'MIN_MAX':
+            if not (hasattr(table_config, 'partition_column') and table_config.partition_column):
+                raise ValueError(f"PARTITION_MODE=MIN_MAX requires PARTITION_COLUMN to be configured")
+        
+        logger.info(f"✅ PARTITION_MODE validation passed: {partition_mode}")

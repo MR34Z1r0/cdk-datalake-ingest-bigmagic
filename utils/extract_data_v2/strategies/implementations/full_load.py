@@ -32,7 +32,7 @@ class FullLoadStrategy(ExtractionStrategy):
             logger.info("ℹ️ Full load without watermark tracking")
         
         # Detectar si necesita particionado
-        if self._should_use_partitioned_load():
+        if self._should_use_partitioned_load_with_mode():  # 🔄 CAMBIO
             logger.info("⚠️ Partitioned full load detected")
             return self._build_partitioned_params(should_track_watermark)
         
@@ -63,6 +63,32 @@ class FullLoadStrategy(ExtractionStrategy):
         logger.info(f"✅ Params built - Columns: {len(params.columns)}, Filters: {len(params.where_conditions)}")
         return params
     
+    def _should_use_partitioned_load_with_mode(self) -> bool:
+        """🆕 MÉTODO MODIFICADO: Evalúa particionado según PARTITION_MODE"""
+        partition_mode = getattr(self.table_config, 'partition_mode', 'AUTO').upper()
+        
+        if partition_mode == 'MIN_MAX':
+            # Forzar particionado
+            if not self._has_valid_partition_column():
+                raise ValueError("PARTITION_MODE=MIN_MAX requires PARTITION_COLUMN")
+            return True
+            
+        elif partition_mode == 'NONE':
+            # Nunca particionar
+            return False
+            
+        else:  # AUTO
+            # Usar lógica existente
+            return self._should_use_partitioned_load()
+    
+    def _has_valid_partition_column(self) -> bool:
+        """🆕 NUEVO MÉTODO"""
+        return (
+            hasattr(self.table_config, 'partition_column') and 
+            self.table_config.partition_column and 
+            self.table_config.partition_column.strip() != ''
+        )
+
     def _should_track_watermark(self) -> bool:
         """
         Determina si debe guardar watermark después de esta carga.

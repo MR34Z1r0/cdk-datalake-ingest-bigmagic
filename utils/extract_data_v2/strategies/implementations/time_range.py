@@ -30,15 +30,63 @@ class TimeRangeStrategy(ExtractionStrategy):
             logger.info("🆕 INITIAL mode detected - Loading ALL historical data")
             return self._build_initial_load_params()
         
-        # Modo NORMAL: Detectar si necesita particionado
-        if self._should_use_partitioned_load():
-            logger.info("⚠️ Partitioned time range load detected - will be handled by orchestrator")
-            return self._build_partitioned_params()
-        
-        # Carga no particionada (normal)
-        logger.info("📋 Building non-partitioned time range params")
-        return self._build_non_partitioned_params()
+        # MODO NORMAL: NUNCA usar particionado (ignorar PARTITION_MODE)
+        logger.info("📋 Building non-partitioned time range params for NORMAL mode")
+        return self._build_non_partitioned_params()  # 🔄 CAMBIO: Siempre no particionado
     
+    def _build_initial_load_params(self) -> ExtractionParams:
+        """
+        Construye parámetros para CARGA INICIAL evaluando PARTITION_MODE
+        """
+        logger.info("🔧 Building INITIAL load params (historical data)")
+        
+        # 🆕 Obtener PARTITION_MODE
+        partition_mode = getattr(self.table_config, 'partition_mode', 'AUTO').upper()
+        logger.info(f"📊 PARTITION_MODE: {partition_mode}")
+        
+        # Evaluar PARTITION_MODE
+        if partition_mode == 'MIN_MAX':
+            if not self._has_valid_partition_column():
+                raise ValueError("PARTITION_MODE=MIN_MAX requires PARTITION_COLUMN")
+            logger.info("✅ Using MIN/MAX partitioning (forced by PARTITION_MODE)")
+            return self._build_partitioned_initial_params()
+            
+        elif partition_mode == 'NONE':
+            logger.info("📅 Using DELAY_INCREMENTAL range (PARTITION_MODE=NONE)")
+            return self._build_initial_with_delay_range()
+            
+        else:  # AUTO
+            logger.info("🔄 AUTO mode - determining best approach")
+            if self._should_use_partitioned_load():
+                logger.info("📊 Auto selected: MIN/MAX partitioning")
+                return self._build_partitioned_initial_params()
+            else:
+                logger.info("📅 Auto selected: DELAY_INCREMENTAL range")
+                return self._build_initial_with_delay_range()
+    
+    def _build_initial_with_delay_range(self) -> ExtractionParams:
+        """🆕 NUEVO MÉTODO: Construye params con DELAY_INCREMENTAL para INITIAL"""
+        logger.info("📅 Building INITIAL params with DELAY_INCREMENTAL range")
+        
+        # Establecer valores por defecto para INITIAL
+        if not hasattr(self.table_config, 'delay_incremental_ini') or not self.table_config.delay_incremental_ini:
+            self.table_config.delay_incremental_ini = '-1000'
+        if not hasattr(self.table_config, 'delay_incremental_end') or not self.table_config.delay_incremental_end:
+            self.table_config.delay_incremental_end = '0'
+        
+        logger.info(f"📅 Using DELAY range: INI={self.table_config.delay_incremental_ini}, END={self.table_config.delay_incremental_end}")
+        
+        # Usar la lógica existente de non_partitioned pero con los delays configurados
+        return self._build_non_partitioned_initial_params()
+    
+    def _has_valid_partition_column(self) -> bool:
+        """🆕 NUEVO MÉTODO: Verifica si tiene partition_column válido"""
+        return (
+            hasattr(self.table_config, 'partition_column') and 
+            self.table_config.partition_column and 
+            self.table_config.partition_column.strip() != ''
+        )
+
     def _should_use_partitioned_load(self) -> bool:
         """Detecta si la tabla requiere particionado"""
         return (
@@ -48,25 +96,6 @@ class TimeRangeStrategy(ExtractionStrategy):
             self.table_config.partition_column and 
             self.table_config.partition_column.strip() != ''
         )
-    
-    def _build_initial_load_params(self) -> ExtractionParams:
-        """
-        Construye parámetros para CARGA INICIAL (modo INITIAL)
-        
-        Para tablas transaccionales: usa MIN/MAX sin filtros de fecha
-        Para tablas maestras: carga completa sin filtros de fecha
-        """
-        logger.info("🔧 Building INITIAL load params (historical data)")
-        
-        # Detectar si es tabla transaccional
-        is_transactional = self._should_use_partitioned_load()
-        
-        if is_transactional:
-            logger.info("📊 Transactional table detected - will use MIN/MAX partitioning")
-            return self._build_partitioned_initial_params()
-        else:
-            logger.info("📋 Master table - full load without date filters")
-            return self._build_non_partitioned_initial_params()
     
     def _build_partitioned_initial_params(self) -> ExtractionParams:
         """
