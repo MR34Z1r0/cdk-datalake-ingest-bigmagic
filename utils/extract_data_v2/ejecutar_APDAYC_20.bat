@@ -24,14 +24,14 @@ if not exist "%VENV_PYTHON%" (
 
 REM ---- Iterar sobre las tablas del archivo tables.txt ----
 set PYTHONIOENCODING=utf-8
-for /f %%T in (tables.txt) do (
+for /f %%T in (tables_20.txt) do (
     echo Procesando tabla %%T...
     "%VENV_PYTHON%" main.py -t %%T -m normal
 )
 
 REM ---- Ejecutar etapa final ----
 echo Ejecutando etapa final...
-"%VENV_PYTHON%" execute_stage.py --process-id=10 --instance=PE
+"%VENV_PYTHON%" execute_stage.py --process-id=20 --instance=PE
 
 echo Proceso finalizado correctamente.
 endlocal
