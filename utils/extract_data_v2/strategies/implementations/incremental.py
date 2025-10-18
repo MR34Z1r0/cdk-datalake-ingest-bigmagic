@@ -58,11 +58,20 @@ class IncrementalStrategy(ExtractionStrategy):
                 params.add_where_condition(filter_condition)
                 logger.info(f"➕ Basic filter: {filter_condition}")
         
+        # 🔢 AGREGAR CHUNKING si es apropiado (igual que incremental normal)
+        if self._should_use_chunking():
+            params.chunk_size = self.extraction_config.chunk_size
+            params.chunk_column = self._get_chunking_column()
+            logger.info(f"🔢 Chunking enabled for INITIAL load - Size: {params.chunk_size}, Column: {params.chunk_column}")
+        else:
+            logger.info(f"ℹ️ Chunking NOT enabled for INITIAL load")
+        
         # 🔑 Marcar que debe guardar watermark
         params.metadata['should_track_watermark'] = True
         params.metadata['watermark_column'] = self.table_config.partition_column
         
         logger.info(f"✅ Initial load params built - will track watermark")
+        logger.info(f"   Chunking: {'YES' if params.chunk_size else 'NO'}")
         
         return params
     
@@ -296,6 +305,26 @@ class IncrementalStrategy(ExtractionStrategy):
             date_filter = self._build_date_based_incremental_filter()
             if date_filter:
                 filters.append(date_filter)
+        
+        return filters
+
+    def _build_basic_filters(self) -> List[str]:
+        """Construye filtros básicos sin complejidad excesiva (mismo patrón que FullLoadStrategy)"""
+        filters = []
+        
+        # Filtro básico de la configuración (FILTER_EXP)
+        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp:
+            clean_filter = self.table_config.filter_exp.replace('"', '').strip()
+            if clean_filter:
+                filters.append(clean_filter)
+                logger.info(f"Added basic filter from filter_exp: {clean_filter}")
+        
+        # Alternativamente buscar basic_filter
+        elif hasattr(self.table_config, 'basic_filter') and self.table_config.basic_filter:
+            clean_filter = self.table_config.basic_filter.strip()
+            if clean_filter:
+                filters.append(clean_filter)
+                logger.info(f"Added basic filter: {clean_filter}")
         
         return filters
 

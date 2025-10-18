@@ -1,20 +1,30 @@
 # strategies/adapters/strategy_adapter.py
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from interfaces.strategy_interface import StrategyInterface
 from ..base.extraction_strategy import ExtractionStrategy
 from ..base.extraction_params import ExtractionParams
 from aje_libs.common.datalake_logger import DataLakeLogger
+from core.partition_formatter import PartitionFormatter
 
 logger = DataLakeLogger.get_logger(__name__)
 
 class StrategyAdapter(StrategyInterface):
     """Adaptador para hacer compatible la nueva estrategia con la interfaz existente"""
     
-    def __init__(self, new_strategy: ExtractionStrategy):
+    def __init__(self, new_strategy: ExtractionStrategy, table_config: Optional[Any] = None):
         self.new_strategy = new_strategy
         self.extraction_params = None
         self.watermark_storage = new_strategy.watermark_storage
-    
+        # 🆕 Inicializar formateador de particiones
+        self.table_config = table_config or getattr(new_strategy, 'table_config', None)
+        partition_format = None
+        if self.table_config and hasattr(self.table_config, 'partition_format'):
+            partition_format = self.table_config.partition_format
+        self.partition_formatter = PartitionFormatter(partition_format)
+        
+        # Log del formato que se usará
+        logger.info(f"🔧 StrategyAdapter initialized with partition format: {self.partition_formatter.format_template}")
+
     def generate_queries(self) -> List[Dict[str, Any]]:
         """Adapta el nuevo método build_extraction_params al formato esperado"""
         logger.info("=== STRATEGY ADAPTER - Generating Queries ===")
@@ -38,6 +48,7 @@ class StrategyAdapter(StrategyInterface):
                 'table_name': self.new_strategy.extraction_config.table_name,
                 'destination_path': self._build_destination_path(),
                 'chunking_params': self._get_chunking_params(),
+                'partition_format': self.partition_formatter.format_template,
                 **self.extraction_params.metadata
             }
         }
@@ -77,6 +88,7 @@ class StrategyAdapter(StrategyInterface):
                 'query_type': 'min_max',
                 'partition_column': partition_column,
                 'needs_partitioned_queries': True,
+                'partition_format': self.partition_formatter.format_template,
                 **self.extraction_params.metadata
             }
         }]
@@ -120,18 +132,25 @@ class StrategyAdapter(StrategyInterface):
         return query
     
     def _build_destination_path(self) -> str:
-        """Construye el path de destino S3"""
-        from utils.date_utils import get_date_parts
-        
-        year, month, day = get_date_parts()
-        
+        """Construye el path de destino S3 con formato configurable"""
         # Obtener nombre de tabla limpio
         clean_table_name = self._get_clean_table_name()
         
-        return (f"{self.new_strategy.extraction_config.team}/"
-                f"{self.new_strategy.extraction_config.data_source}/"
-                f"{self.new_strategy.extraction_config.endpoint_name}/"
-                f"{clean_table_name}/year={year}/month={month}/day={day}/")
+        # 🆕 Generar ruta de partición usando el formato configurado
+        partition_path = self.partition_formatter.format_path()
+        
+        # Log para debugging
+        logger.debug(f"Building destination path with partition format: {self.partition_formatter.format_template}")
+        logger.debug(f"Generated partition path: {partition_path}")
+        
+        destination_path = (f"{self.new_strategy.extraction_config.team}/"
+                          f"{self.new_strategy.extraction_config.data_source}/"
+                          f"{self.new_strategy.extraction_config.endpoint_name}/"
+                          f"{clean_table_name}/{partition_path}/")
+        
+        logger.info(f"📁 Final destination path: {destination_path}")
+        
+        return destination_path
     
     def _get_clean_table_name(self) -> str:
         """Extrae nombre de tabla limpio"""

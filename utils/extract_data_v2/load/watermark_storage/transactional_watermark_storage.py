@@ -4,6 +4,7 @@ from aje_libs.common.datalake_logger import DataLakeLogger
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 from enum import Enum
+import json
 
 class WatermarkStatus(Enum):
     """Estados de watermark"""
@@ -46,11 +47,14 @@ class TransactionalWatermarkStorage(WatermarkStorageInterface):
     def save_provisional(self, table_name: str, column_name: str, value: str, metadata: Dict[str, Any] = None) -> bool:
         """Guarda watermark PROVISIONAL (PENDING)"""
         try:
+            now = datetime.now()
+            timestamp_str = now.strftime('%Y-%m-%d %H:%M:%S.%f')
+            
             full_metadata = {
                 **(metadata or {}),
                 'status': WatermarkStatus.PENDING.value,
-                'saved_at': datetime.now().isoformat(),
-                'transaction_id': f"{table_name}_{column_name}_{datetime.now().strftime('%Y%m%d_%H%M%S_%f')}"
+                'saved_at': now.isoformat(),
+                'transaction_id': f"{table_name}_{column_name}_{now.strftime('%Y%m%d_%H%M%S_%f')}"
             }
             
             success = self.base_storage.set_last_extracted_value(
@@ -62,10 +66,12 @@ class TransactionalWatermarkStorage(WatermarkStorageInterface):
             
             if success:
                 cache_key = f"{table_name}#{column_name}"
+                # 🔑 GUARDAR EL TIMESTAMP PARA USARLO EN CONFIRM
                 self._pending_watermarks[cache_key] = {
                     'value': value,
                     'metadata': full_metadata,
-                    'saved_at': datetime.now()
+                    'saved_at': now,
+                    'timestamp': timestamp_str  # ✅ NUEVO: Guardar timestamp exacto
                 }
                 self.logger.info(f"💾 PENDING watermark saved: {table_name}.{column_name} = {value}")
                 return True
@@ -77,7 +83,7 @@ class TransactionalWatermarkStorage(WatermarkStorageInterface):
             return False
     
     def confirm(self, table_name: str, column_name: str, additional_metadata: Dict[str, Any] = None) -> bool:
-        """Confirma watermark PENDING → CONFIRMED"""
+        """Confirma watermark PENDING → CONFIRMED (ACTUALIZA el mismo registro)"""
         try:
             cache_key = f"{table_name}#{column_name}"
             
@@ -86,7 +92,9 @@ class TransactionalWatermarkStorage(WatermarkStorageInterface):
                 return False
             
             pending = self._pending_watermarks[cache_key]
+            watermark_key = f"{self.project_name}#{table_name}#{column_name}"
             
+            # Metadata actualizada
             confirmed_metadata = {
                 **pending['metadata'],
                 'status': WatermarkStatus.CONFIRMED.value,
@@ -94,19 +102,30 @@ class TransactionalWatermarkStorage(WatermarkStorageInterface):
                 **(additional_metadata or {})
             }
             
-            success = self.base_storage.set_last_extracted_value(
-                table_name=table_name,
-                column_name=column_name,
-                value=pending['value'],
-                metadata=confirmed_metadata
-            )
+            # ✅ SOLUCIÓN: ACTUALIZAR el registro PENDING existente en lugar de crear uno nuevo
+            if hasattr(self.base_storage, 'dynamo_helper'):
+                self.base_storage.dynamo_helper.update_item(
+                    partition_key=watermark_key,
+                    sort_key=pending['timestamp'],  # ✅ Usar el timestamp guardado
+                    update_expression="SET METADATA = :metadata",
+                    expression_attribute_values={
+                        ':metadata': json.dumps(confirmed_metadata)
+                    }
+                )
+                self.logger.info(f"✅ CONFIRMED watermark (updated in-place): {table_name}.{column_name}")
+            else:
+                # Fallback para otros storages que no sean DynamoDB
+                success = self.base_storage.set_last_extracted_value(
+                    table_name=table_name,
+                    column_name=column_name,
+                    value=pending['value'],
+                    metadata=confirmed_metadata
+                )
+                if not success:
+                    return False
             
-            if success:
-                del self._pending_watermarks[cache_key]
-                self.logger.info(f"✅ CONFIRMED watermark: {table_name}.{column_name} = {pending['value']}")
-                return True
-            
-            return False
+            del self._pending_watermarks[cache_key]
+            return True
                 
         except Exception as e:
             self.logger.error(f"Error confirming: {e}")
@@ -127,12 +146,25 @@ class TransactionalWatermarkStorage(WatermarkStorageInterface):
                     'error_info': error_info or {}
                 }
                 
-                self.base_storage.set_last_extracted_value(
-                    table_name=table_name,
-                    column_name=column_name,
-                    value=pending['value'],
-                    metadata=rollback_metadata
-                )
+                # Actualizar el registro PENDING a ROLLBACK
+                watermark_key = f"{self.project_name}#{table_name}#{column_name}"
+                
+                if hasattr(self.base_storage, 'dynamo_helper'):
+                    self.base_storage.dynamo_helper.update_item(
+                        partition_key=watermark_key,
+                        sort_key=pending['timestamp'],
+                        update_expression="SET METADATA = :metadata",
+                        expression_attribute_values={
+                            ':metadata': json.dumps(rollback_metadata)
+                        }
+                    )
+                else:
+                    self.base_storage.set_last_extracted_value(
+                        table_name=table_name,
+                        column_name=column_name,
+                        value=pending['value'],
+                        metadata=rollback_metadata
+                    )
                 
                 del self._pending_watermarks[cache_key]
                 self.logger.warning(f"🔄 ROLLBACK watermark: {table_name}.{column_name}")

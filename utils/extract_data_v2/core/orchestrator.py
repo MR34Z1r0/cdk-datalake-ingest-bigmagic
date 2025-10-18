@@ -23,7 +23,7 @@ from strategies.strategy_factory import StrategyFactory
 from utils.csv_loader import CSVConfigLoader
 from exceptions.custom_exceptions import *
 from config.settings import settings
-            
+from core.partition_formatter import PartitionFormatter
 
 class DataExtractionOrchestrator:
     """Main orchestrator for the data extraction process"""
@@ -34,7 +34,7 @@ class DataExtractionOrchestrator:
         self.process_guid = process_guid
         self.table_config: Optional[TableConfig] = None
         self.database_config: Optional[DatabaseConfig] = None
-    
+        
         # Inicializar logger - AGREGAR ESTA LÍNEA
         from aje_libs.common.datalake_logger import DataLakeLogger
         self.logger = DataLakeLogger.get_logger(__name__)
@@ -244,6 +244,15 @@ class DataExtractionOrchestrator:
             self.table_config = self._build_table_config(table_row)
             self.database_config = self._build_database_config(db_row)
             
+            # AGREGAR AQUÍ - después de cargar table_config
+            if self.table_config and hasattr(self.table_config, 'partition_format'):
+                partition_format = self.table_config.partition_format
+                self.partition_formatter = PartitionFormatter(partition_format)
+                self.logger.info(f"Partition format loaded: {partition_format}")
+            else:
+                self.partition_formatter = PartitionFormatter()  # Usa formato default
+                self.logger.info("Using default partition format")
+                
         except Exception as e:
             raise ConfigurationError(f"Failed to load configurations: {e}")
     
@@ -280,6 +289,7 @@ class DataExtractionOrchestrator:
             load_type=load_type,
             source_table_type=table_row.get('SOURCE_TABLE_TYPE', ''),
             partition_mode=table_row.get('PARTITION_MODE', 'AUTO'),
+            partition_format=table_row.get('PARTITION_FORMAT'),
             id_column=table_row.get('ID_COLUMN'),
             partition_column=table_row.get('PARTITION_COLUMN'),
             filter_exp=table_row.get('FILTER_EXP'),
@@ -287,7 +297,7 @@ class DataExtractionOrchestrator:
             filter_data_type=table_row.get('FILTER_DATA_TYPE'),
             join_expr=table_row.get('JOIN_EXPR'),
             delay_incremental_ini=table_row.get('DELAY_INCREMENTAL_INI'),
-            delay_incremental_end=table_row.get('DELAY_INCREMENTAL_END'),  # 👈 NUEVO
+            delay_incremental_end=table_row.get('DELAY_INCREMENTAL_END'),
             start_value=table_row.get('START_VALUE'),
             end_value=table_row.get('END_VALUE')
         )
@@ -581,7 +591,19 @@ class DataExtractionOrchestrator:
                 (is_incremental or should_track)):
                 
                 # Guardar watermark
-                if hasattr(self.watermark_storage, 'confirm'):
+                if hasattr(self.watermark_storage, 'save_provisional'):                    
+                    # Primero guardar como PENDING
+                    self.watermark_storage.save_provisional(
+                        table_name=self.table_config.stage_table_name,
+                        column_name=self.table_config.partition_column,
+                        value=str(max_extracted_value),
+                        metadata={
+                            'thread_id': thread_id,
+                            'strategy': self.strategy.get_strategy_name(),
+                            'load_mode': self.extraction_config.load_mode.value
+                        }
+                    )
+                    # Luego confirmar
                     success = self.watermark_storage.confirm(
                         table_name=self.table_config.stage_table_name,
                         column_name=self.table_config.partition_column,
@@ -797,15 +819,17 @@ class DataExtractionOrchestrator:
         return files_created, total_records
     
     def _build_destination_path(self) -> str:
-        """Build destination path for files"""
-        from utils.date_utils import get_date_parts
-        
-        year, month, day = get_date_parts()
-        
-        # Get clean table name
+        """Build destination path for files with configurable partition format"""
+        # Obtener nombre limpio de tabla
         clean_table_name = self._get_clean_table_name()
         
-        return f"{self.extraction_config.team}/{self.extraction_config.data_source}/{self.extraction_config.endpoint_name}/{clean_table_name}/year={year}/month={month}/day={day}/"
+        # 🆕 Generar ruta de partición usando el formato configurado
+        partition_path = self.partition_formatter.format_path()
+        
+        return (f"{self.extraction_config.team}/"
+                f"{self.extraction_config.data_source}/"
+                f"{self.extraction_config.endpoint_name}/"
+                f"{clean_table_name}/{partition_path}/")
     
     def _get_clean_table_name(self) -> str:
         """Extract clean table name from SOURCE_TABLE, removing alias after space"""

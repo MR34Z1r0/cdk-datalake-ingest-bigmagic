@@ -12,6 +12,7 @@ class TableConfig:
     load_type: str  # 'full', 'incremental', 'partitioned', 'date_range'
     source_table_type: str
     partition_mode: Optional[str] = None
+    partition_format: Optional[str] = None
     id_column: Optional[str] = None
     partition_column: Optional[str] = None
     filter_exp: Optional[str] = None
