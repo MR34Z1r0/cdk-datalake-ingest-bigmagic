@@ -289,25 +289,13 @@ class FullLoadStrategy(ExtractionStrategy):
         return base_estimate
     
     def _build_basic_filters(self) -> List[str]:
-        """Construye filtros básicos sin complejidad excesiva"""
+        """Construye SOLO filtros básicos (FILTER_EXP)"""
         filters = []
         
-        # Filtro básico de la configuración
-        if hasattr(self.table_config, 'basic_filter') and self.table_config.basic_filter:
-            filters.append(self.table_config.basic_filter.strip())
-        
-        # Filtros de fecha si están configurados (simplificado)
-        if (hasattr(self.table_config, 'filter_column') and 
-            self.table_config.filter_column and 
-            hasattr(self.table_config, 'delay_incremental_ini') and
-            self.table_config.delay_incremental_ini):
-            
-            try:
-                date_filter = self._build_simple_date_filter()
-                if date_filter:
-                    filters.append(date_filter)
-            except Exception as e:
-                logger.warning(f"Could not build date filter: {e}")
+        if hasattr(self.table_config, 'filter_exp') and self.table_config.filter_exp:
+            clean_filter = self.table_config.filter_exp.replace('"', '').strip()
+            if clean_filter:
+                filters.append(clean_filter)
         
         return filters
     

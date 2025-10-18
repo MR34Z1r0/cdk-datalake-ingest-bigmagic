@@ -48,6 +48,29 @@ class CrawlerStageError(Exception):
     """Excepción personalizada para errores del CrawlerStage"""
     pass
 
+def split_tables_into_batches(table_list: List[str], batch_size: int = 10) -> List[Tuple[int, List[str]]]:
+    """
+    Divide la lista de tablas en lotes más pequeños
+    
+    Args:
+        table_list: Lista completa de tablas
+        batch_size: Tamaño de cada lote (default: 10)
+    
+    Returns:
+        Lista de tuplas (batch_number, tables) donde batch_number empieza en 1
+    """
+    batches = []
+    for i in range(0, len(table_list), batch_size):
+        batch_number = (i // batch_size) + 1
+        batch_tables = table_list[i:i + batch_size]
+        batches.append((batch_number, batch_tables))
+    
+    logger.info(f"📦 Divididas {len(table_list)} tablas en {len(batches)} lotes de hasta {batch_size} tablas")
+    for batch_num, tables in batches:
+        logger.info(f"   Lote {batch_num}: {len(tables)} tablas")
+    
+    return batches
+
 def validate_arguments(args: Dict[str, str]) -> None:
     """Valida que todos los argumentos requeridos estén presentes"""
     required_args = [
@@ -435,9 +458,26 @@ def build_crawler_targets(total_list: List[str]) -> List[Dict[str, Any]]:
     return tables
 
 @retry_on_failure()
-def create_crawler(total_list: List[str]) -> bool:
-    """Crea un nuevo crawler en Glue"""
-    logger.info(f"Creando crawler: {data_catalog_crawler_name}")
+def create_crawler(total_list: List[str], batch_number: int = None) -> bool:
+    """
+    Crea un nuevo crawler en Glue
+    
+    Args:
+        total_list: Lista de tablas a incluir en el crawler
+        batch_number: Número del lote (opcional, para crawlers múltiples)
+    
+    Returns:
+        True si fue exitoso, False en caso contrario
+    """
+    # Determinar el nombre del crawler
+    if batch_number is not None:
+        crawler_name = f"{data_catalog_database_name}_batch{batch_number}_cw"
+        description = f'Crawler batch {batch_number} for {endpoint_name} stage tables'
+    else:
+        crawler_name = data_catalog_crawler_name
+        description = f'Crawler for {endpoint_name} stage tables'
+    
+    logger.info(f"Creando crawler: {crawler_name}")
     
     try:
         tables = build_crawler_targets(total_list)
@@ -447,10 +487,10 @@ def create_crawler(total_list: List[str]) -> bool:
             return False
         
         response = client_glue.create_crawler(
-            Name=data_catalog_crawler_name,
+            Name=crawler_name,
             Role=arn_role_crawler,
             DatabaseName=data_catalog_database_name,
-            Description=f'Crawler for {endpoint_name} stage tables',
+            Description=description,
             Targets={
                 'DeltaTargets': tables
             },
@@ -462,13 +502,13 @@ def create_crawler(total_list: List[str]) -> bool:
             })
         )
         
-        logger.info(f"Crawler '{data_catalog_crawler_name}' creado exitosamente")
+        logger.info(f"✅ Crawler '{crawler_name}' creado exitosamente con {len(tables)} tablas")
         return True
         
     except ClientError as e:
         error_code = e.response['Error']['Code']
         if error_code == 'AlreadyExistsException':
-            logger.warning(f"El crawler '{data_catalog_crawler_name}' ya existe")
+            logger.warning(f"El crawler '{crawler_name}' ya existe")
             return True
         else:
             logger.error(f"Error creando crawler: {error_code} - {str(e)}")
@@ -479,9 +519,26 @@ def create_crawler(total_list: List[str]) -> bool:
         raise
 
 @retry_on_failure()
-def edit_crawler(total_list: List[str]) -> bool:
-    """Actualiza la configuración de un crawler existente"""
-    logger.info(f"Actualizando crawler: {data_catalog_crawler_name}")
+def edit_crawler(total_list: List[str], batch_number: int = None) -> bool:
+    """
+    Actualiza la configuración de un crawler existente
+    
+    Args:
+        total_list: Lista de tablas a incluir en el crawler
+        batch_number: Número del lote (opcional, para crawlers múltiples)
+    
+    Returns:
+        True si fue exitoso, False en caso contrario
+    """
+    # Determinar el nombre del crawler
+    if batch_number is not None:
+        crawler_name = f"{data_catalog_database_name}_batch{batch_number}_cw"
+        description = f'Updated crawler batch {batch_number} for {endpoint_name} stage tables'
+    else:
+        crawler_name = data_catalog_crawler_name
+        description = f'Updated crawler for {endpoint_name} stage tables'
+    
+    logger.info(f"Actualizando crawler: {crawler_name}")
     
     try:
         tables = build_crawler_targets(total_list)
@@ -491,16 +548,16 @@ def edit_crawler(total_list: List[str]) -> bool:
             return False
         
         response = client_glue.update_crawler(
-            Name=data_catalog_crawler_name,
+            Name=crawler_name,
             Role=arn_role_crawler,
             DatabaseName=data_catalog_database_name,
-            Description=f'Updated crawler for {endpoint_name} stage tables',
+            Description=description,
             Targets={
                 'DeltaTargets': tables
             }
         )
         
-        logger.info(f"Crawler '{data_catalog_crawler_name}' actualizado exitosamente")
+        logger.info(f"✅ Crawler '{crawler_name}' actualizado exitosamente con {len(tables)} tablas")
         return True
         
     except ClientError as e:
@@ -511,6 +568,60 @@ def edit_crawler(total_list: List[str]) -> bool:
         logger.error(f"Error inesperado actualizando crawler: {str(e)}")
         raise
 
+def process_crawler_batch(batch_number: int, batch_tables: List[str]) -> bool:
+    """
+    Procesa un lote individual de tablas creando/actualizando su crawler
+    
+    Args:
+        batch_number: Número del lote
+        batch_tables: Lista de tablas del lote
+    
+    Returns:
+        True si fue exitoso, False en caso contrario
+    """
+    crawler_name = f"{data_catalog_database_name}_batch{batch_number}_cw"
+    
+    logger.info("="*60)
+    logger.info(f"📦 PROCESANDO LOTE {batch_number}")
+    logger.info(f"📋 Tablas en este lote: {len(batch_tables)}")
+    logger.info(f"🔍 Crawler: {crawler_name}")
+    logger.info("="*60)
+    
+    try:
+        # Verificar si el crawler del lote existe
+        crawler_exists = get_crawler(crawler_name)
+        
+        if crawler_exists:
+            logger.info(f"✓ El crawler del lote {batch_number} ya existe, actualizando...")
+            if not edit_crawler(batch_tables, batch_number):
+                logger.error(f"✗ Error actualizando el crawler del lote {batch_number}")
+                return False
+        else:
+            logger.info(f"✓ Creando nuevo crawler para el lote {batch_number}...")
+            if not create_crawler(batch_tables, batch_number):
+                logger.error(f"✗ Error creando el crawler del lote {batch_number}")
+                return False
+        
+        # Iniciar el crawler del lote
+        logger.info(f"▶️  Iniciando crawler del lote {batch_number}...")
+        if not start_crawler(crawler_name):
+            logger.error(f"✗ Error iniciando el crawler del lote {batch_number}")
+            return False
+        
+        # Monitorear el progreso del crawler
+        logger.info(f"👀 Monitoreando progreso del crawler del lote {batch_number}...")
+        if not monitor_crawler_progress(crawler_name, timeout_minutes=30):
+            logger.error(f"✗ El crawler del lote {batch_number} no completó exitosamente")
+            return False
+        
+        logger.info(f"✅ Lote {batch_number} procesado exitosamente")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Error procesando lote {batch_number}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return False
+    
 @retry_on_failure()
 def get_crawler(crawler_name: str) -> bool:
     """Verifica si existe un crawler"""
@@ -714,135 +825,185 @@ def get_crawler_status_from_config(config: Dict[str, Any]) -> Tuple[List[str], L
 
 # Función principal con manejo robusto de errores
 def main():
-   """Función principal del proceso"""
-   start_time = time.time()
-   logger.info("="*60)
-   logger.info("INICIANDO PROCESO CRAWLER STAGE")
-   logger.info("="*60)
-   
-   try:
-       # Obtener estado de las tablas desde la configuración
-       logger.info("Paso 1: Obteniendo estado de las tablas...")
-       total_list, empty_table = get_crawler_status_from_config(crawler_config)
-       
-       if not total_list:
-           logger.warning(f"No se encontraron tablas para el endpoint '{endpoint_name}'")
-           logger.info("Proceso finalizado - No hay tablas para procesar")
-           return
-       
-       logger.info(f"Tablas encontradas: {len(total_list)}, Nuevas tablas: {len(empty_table)}")
-       
-       # Verificar si el crawler existe
-       logger.info("Paso 2: Verificando existencia del crawler...")
-       crawler_exists = get_crawler(data_catalog_crawler_name)
-       
-       if crawler_exists:
-           logger.info("El crawler ya existe")
-           
-           # Si hay nuevas tablas, actualizar el crawler
-           if len(empty_table) > 0:
-               logger.info(f"Actualizando crawler con {len(empty_table)} nuevas tablas...")
-               if edit_crawler(total_list):
-                   logger.info("Crawler actualizado exitosamente")
-               else:
-                   logger.error("Error actualizando el crawler")
-                   return
-           
-           logger.info("Paso 3: Iniciando crawler existente...")
-           if start_crawler(data_catalog_crawler_name):
-               logger.info("Crawler iniciado exitosamente")
-           else:
-               logger.error("Error iniciando el crawler")
-               return
-               
-       else:
-           logger.info("El crawler no existe, procediendo a crearlo...")
-           
-           # Paso 3: Crear la base de datos (si no existe)
-           logger.info("Paso 3: Creando base de datos del catálogo (si no existe)...")
-           try:
-               create_database_data_catalog(data_catalog_database_name)
-               logger.info("Base de datos creada o ya existente")
-           except Exception as e:
-               logger.error(f"Error creando/verificando la base de datos: {str(e)}")
-               return
+    """Función principal del proceso con soporte para crawlers por lotes"""
+    start_time = time.time()
+    logger.info("="*80)
+    logger.info("🚀 INICIANDO PROCESO CRAWLER STAGE CON PROCESAMIENTO POR LOTES")
+    logger.info("="*80)
+    
+    try:
+        # Paso 1: Obtener estado de las tablas desde la configuración
+        logger.info("📋 Paso 1: Obteniendo estado de las tablas...")
+        total_list, empty_table = get_crawler_status_from_config(crawler_config)
+        
+        if not total_list:
+            logger.warning(f"⚠️  No se encontraron tablas para el endpoint '{endpoint_name}'")
+            logger.info("Proceso finalizado - No hay tablas para procesar")
+            return
+        
+        logger.info(f"📊 Tablas encontradas: {len(total_list)}")
+        logger.info(f"🆕 Nuevas tablas: {len(empty_table)}")
+        
+        # Paso 2: Crear la base de datos (si no existe)
+        logger.info("🗄️  Paso 2: Creando base de datos del catálogo (si no existe)...")
+        try:
+            create_database_data_catalog(data_catalog_database_name)
+            logger.info("✅ Base de datos creada o ya existente")
+        except Exception as e:
+            logger.error(f"❌ Error creando/verificando la base de datos: {str(e)}")
+            return
 
-           # Paso 4: Otorgar permisos de Lake Formation a la base de datos
-           job_role_arn_name = arn_role_crawler
-           logger.info("Otorgando permisos de Lake Formation a la base de datos...")
-           try:
-               grant_permissions_to_database_lakeformation(job_role_arn_name, data_catalog_database_name)
-           except Exception as e:
-               logger.warning(f"Error otorgando permisos de base de datos (continuando): {str(e)}")
+        # Paso 3: Otorgar permisos de Lake Formation a la base de datos
+        job_role_arn_name = arn_role_crawler
+        logger.info("🔐 Paso 3: Otorgando permisos de Lake Formation a la base de datos...")
+        try:
+            grant_permissions_to_database_lakeformation(job_role_arn_name, data_catalog_database_name)
+        except Exception as e:
+            logger.warning(f"⚠️  Error otorgando permisos de base de datos (continuando): {str(e)}")
 
-           # Paso 5: Verificar y asignar LF-Tags si es necesario
-           logger.info("Paso 5: Verificando LF-Tags en la base de datos...")
-           if not check_lf_tags_on_database(data_catalog_database_name):
-               logger.info("La base de datos no tiene LF-Tags, agregándolos...")
-               # Primero asegurar que el LF-Tag existe
-               try:
-                   create_lf_tag_if_not_exists('Level', ['Stage'])
-               except Exception as e:
-                   logger.warning(f"Error creando LF-Tag (continuando): {str(e)}")
-               # Asegurar permisos de LF-Tag para el rol
-               try:
-                   grant_permissions_lf_tag_lakeformation(job_role_arn_name)
-               except Exception as e:
-                   logger.warning(f"Error otorgando permisos LF-Tag (continuando): {str(e)}")
-               # Agregar LF-Tags a la base de datos
-               try:
-                   add_lf_tags_to_database_lakeformation(data_catalog_database_name)
-               except Exception as e:
-                   logger.warning(f"Error agregando LF-Tags (continuando): {str(e)}")
-           else:
-               logger.info("La base de datos ya tiene los LF-Tags requeridos")
+        # Paso 4: Verificar y asignar LF-Tags si es necesario
+        logger.info("🏷️  Paso 4: Verificando LF-Tags en la base de datos...")
+        if not check_lf_tags_on_database(data_catalog_database_name):
+            logger.info("📌 La base de datos no tiene LF-Tags, agregándolos...")
+            # Primero asegurar que el LF-Tag existe
+            try:
+                create_lf_tag_if_not_exists('Level', ['Stage'])
+            except Exception as e:
+                logger.warning(f"⚠️  Error creando LF-Tag (continuando): {str(e)}")
+            # Asegurar permisos de LF-Tag para el rol
+            try:
+                grant_permissions_lf_tag_lakeformation(job_role_arn_name)
+            except Exception as e:
+                logger.warning(f"⚠️  Error otorgando permisos LF-Tag (continuando): {str(e)}")
+            # Agregar LF-Tags a la base de datos
+            try:
+                add_lf_tags_to_database_lakeformation(data_catalog_database_name)
+            except Exception as e:
+                logger.warning(f"⚠️  Error agregando LF-Tags (continuando): {str(e)}")
+        else:
+            logger.info("✅ La base de datos ya tiene los LF-Tags requeridos")
 
-           # Paso 6: Crear el crawler
-           logger.info("Paso 6: Creando nuevo crawler...")
-           if create_crawler(total_list):
-               logger.info("Crawler creado exitosamente")
-               logger.info("Paso 7: Iniciando nuevo crawler...")
-               if start_crawler(data_catalog_crawler_name):
-                   logger.info("Crawler iniciado exitosamente")
-               else:
-                   logger.error("Error iniciando el nuevo crawler")
-                   return
-           else:
-               logger.error("Error creando el crawler")
-               return
-       
-       # Calcular tiempo de ejecución
-       execution_time = time.time() - start_time
-       logger.info("="*60)
-       logger.info("PROCESO COMPLETADO EXITOSAMENTE")
-       logger.info(f"Tiempo de ejecución: {execution_time:.2f} segundos")
-       logger.info(f"Crawler: {data_catalog_crawler_name}")
-       logger.info(f"Base de datos: {data_catalog_database_name}")
-       logger.info(f"Tablas procesadas: {len(total_list)}")
-       logger.info(f"Nuevas tablas agregadas: {len(empty_table)}")
-       logger.info("="*60)
-       
-   except CrawlerStageError as e:
-       logger.error(f"Error específico del CrawlerStage: {str(e)}")
-       logger.error("El proceso se detuvo debido a un error controlado")
-       sys.exit(1)
-       
-   except ClientError as e:
-       error_code = e.response['Error']['Code']
-       error_message = e.response['Error']['Message']
-       logger.error(f"Error de cliente AWS: {error_code} - {error_message}")
-       logger.error("El proceso se detuvo debido a un error de AWS")
-       sys.exit(1)
-       
-   except Exception as e:
-       execution_time = time.time() - start_time
-       logger.critical(f"Error crítico no manejado: {str(e)}")
-       logger.critical(f"Traceback completo: {traceback.format_exc()}")
-       logger.critical(f"Tiempo transcurrido antes del error: {execution_time:.2f} segundos")
-       logger.critical("="*60)
-       logger.critical("PROCESO TERMINADO CON ERROR CRÍTICO")
-       logger.critical("="*60)
-       sys.exit(1)
+        # Paso 5: Dividir tablas en lotes y procesarlas
+        logger.info("="*80)
+        logger.info("📦 Paso 5: PROCESAMIENTO POR LOTES")
+        logger.info("="*80)
+        
+        # Definir el tamaño del lote (10 tablas por crawler)
+        BATCH_SIZE = 10
+        
+        # Verificar si necesitamos dividir en lotes
+        if len(total_list) <= BATCH_SIZE:
+            logger.info(f"ℹ️  Total de tablas ({len(total_list)}) <= {BATCH_SIZE}, usando un solo crawler")
+            
+            # Usar el crawler único tradicional
+            crawler_exists = get_crawler(data_catalog_crawler_name)
+            
+            if crawler_exists:
+                logger.info("✓ El crawler ya existe, actualizando...")
+                if not edit_crawler(total_list):
+                    logger.error("✗ Error actualizando el crawler")
+                    return
+            else:
+                logger.info("✓ Creando nuevo crawler...")
+                if not create_crawler(total_list):
+                    logger.error("✗ Error creando el crawler")
+                    return
+            
+            # Iniciar y monitorear el crawler
+            logger.info("▶️  Iniciando crawler...")
+            if not start_crawler(data_catalog_crawler_name):
+                logger.error("✗ Error iniciando el crawler")
+                return
+            
+            logger.info("👀 Monitoreando progreso del crawler...")
+            if not monitor_crawler_progress(data_catalog_crawler_name, timeout_minutes=30):
+                logger.error("✗ El crawler no completó exitosamente")
+                return
+        else:
+            logger.info(f"ℹ️  Total de tablas ({len(total_list)}) > {BATCH_SIZE}, dividiendo en lotes")
+            
+            # Dividir en lotes
+            batches = split_tables_into_batches(total_list, batch_size=BATCH_SIZE)
+            
+            logger.info(f"📦 Se crearán {len(batches)} crawlers (uno por cada lote)")
+            logger.info("")
+            
+            # Procesar cada lote
+            successful_batches = 0
+            failed_batches = 0
+            
+            for batch_num, batch_tables in batches:
+                logger.info(f"🔄 Procesando lote {batch_num}/{len(batches)}...")
+                
+                # Procesar el lote
+                if process_crawler_batch(batch_num, batch_tables):
+                    successful_batches += 1
+                    logger.info(f"✅ Lote {batch_num} completado exitosamente")
+                else:
+                    failed_batches += 1
+                    logger.error(f"❌ Lote {batch_num} falló")
+                    # Decidir si continuar con los siguientes lotes o detener
+                    # Por ahora, continuamos con los siguientes lotes
+                    logger.warning("⚠️  Continuando con el siguiente lote...")
+                
+                # Pequeña pausa entre lotes para evitar throttling de AWS
+                if batch_num < len(batches):
+                    logger.info("⏸️  Pausando 10 segundos antes del siguiente lote...")
+                    time.sleep(10)
+                
+                logger.info("")
+            
+            # Resumen de lotes procesados
+            logger.info("="*80)
+            logger.info("📊 RESUMEN DE PROCESAMIENTO POR LOTES")
+            logger.info("="*80)
+            logger.info(f"✅ Lotes exitosos: {successful_batches}/{len(batches)}")
+            logger.info(f"❌ Lotes fallidos: {failed_batches}/{len(batches)}")
+            logger.info("="*80)
+            
+            # Si todos los lotes fallaron, retornar error
+            if successful_batches == 0:
+                logger.error("❌ Todos los lotes fallaron, proceso terminado con error")
+                sys.exit(1)
+            elif failed_batches > 0:
+                logger.warning(f"⚠️  Proceso completado con {failed_batches} lote(s) fallido(s)")
+        
+        # Calcular tiempo de ejecución
+        execution_time = time.time() - start_time
+        logger.info("="*80)
+        logger.info("✅ PROCESO COMPLETADO EXITOSAMENTE")
+        logger.info("="*80)
+        logger.info(f"⏱️  Tiempo de ejecución: {execution_time:.2f} segundos ({execution_time/60:.1f} minutos)")
+        logger.info(f"📊 Crawler base: {data_catalog_crawler_name}")
+        logger.info(f"🗄️  Base de datos: {data_catalog_database_name}")
+        logger.info(f"📋 Total de tablas procesadas: {len(total_list)}")
+        if len(total_list) > BATCH_SIZE:
+            logger.info(f"📦 Crawlers creados: {len(batches)} (procesamiento por lotes)")
+        else:
+            logger.info(f"📦 Crawler único utilizado")
+        logger.info("="*80)
+        
+    except CrawlerStageError as e:
+        logger.error(f"❌ Error específico del CrawlerStage: {str(e)}")
+        logger.error("El proceso se detuvo debido a un error controlado")
+        sys.exit(1)
+        
+    except ClientError as e:
+        error_code = e.response['Error']['Code']
+        error_message = e.response['Error']['Message']
+        logger.error(f"❌ Error de cliente AWS: {error_code} - {error_message}")
+        logger.error("El proceso se detuvo debido a un error de AWS")
+        sys.exit(1)
+        
+    except Exception as e:
+        execution_time = time.time() - start_time
+        logger.critical(f"❌ Error crítico no manejado: {str(e)}")
+        logger.critical(f"Traceback completo: {traceback.format_exc()}")
+        logger.critical(f"Tiempo transcurrido antes del error: {execution_time:.2f} segundos")
+        logger.critical("="*80)
+        logger.critical("PROCESO TERMINADO CON ERROR CRÍTICO")
+        logger.critical("="*80)
+        sys.exit(1)
 
 def health_check() -> bool:
    """Realiza verificaciones de salud del sistema antes de ejecutar el proceso principal"""
